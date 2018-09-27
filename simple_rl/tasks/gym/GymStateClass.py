@@ -13,6 +13,9 @@ class GymState(State):
         self.data = data
         State.__init__(self, data=data, is_terminal=is_terminal)
 
+    def __repr__(self):
+        return "theta={}".format(np.arccos(self.data[0]))
+
     def to_rgb(self, x_dim, y_dim):
         # 3 by x_length by y_length array with values 0 (0) --> 1 (255)
         board = np.zeros(shape=[3, x_dim, y_dim])

@@ -287,6 +287,42 @@ def run_agents_on_mdp(agents,
 
     experiment.make_plots(open_plot=open_plot)
 
+
+def run_agent_on_mdp(agent, mdp, max_steps=1000):
+    reward, value, reached_goal = 0., 0., False
+    policy = defaultdict()
+    examples = []
+    gamma = mdp.get_gamma()
+    state = mdp.get_init_state()
+
+    for step in range(max_steps):
+        examples.append(state)
+        if state.is_terminal():
+            reached_goal = True
+            print("\nReAcHeDg.O.a.LsTaTe in {} steps".format(step))
+            break
+
+        action = agent.act(state, reward)
+        policy[state] = action
+
+        reward, next_state = mdp.execute_agent_action(action)
+        value += reward * (gamma ** step)
+        state = next_state
+
+    mdp.reset()
+    agent.end_of_episode()
+
+    if reached_goal:
+        positive_examples = copy.deepcopy(examples)
+        negative_examples = []
+        r = 0.25
+        if len(examples) > r * len(examples):
+            positive_examples = examples[-int(r * len(examples)):]
+            negative_examples = examples[:len(examples)-int(r * len(examples))]
+        examples = [positive_examples, negative_examples]
+
+    return policy, reached_goal, examples
+
 def run_single_agent_on_mdp(agent, mdp, episodes, steps, experiment=None, verbose=False, track_disc_reward=False, reset_at_terminal=False, resample_at_terminal=False):
     '''
     Summary:
