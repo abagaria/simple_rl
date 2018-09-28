@@ -289,11 +289,12 @@ def run_agents_on_mdp(agents,
 
 
 def run_agent_on_mdp(agent, mdp, max_steps=1000):
+    from simple_rl.tasks.gym.GymStateClass import GymState
     reward, value, reached_goal = 0., 0., False
     policy = defaultdict()
     examples = []
     gamma = mdp.get_gamma()
-    state = mdp.get_init_state()
+    state = GymState(mdp.env.reset())
 
     for step in range(max_steps):
         examples.append(state)

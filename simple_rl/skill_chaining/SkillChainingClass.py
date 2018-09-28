@@ -39,10 +39,12 @@ class SkillChaining(object):
         """
         self.mdp.subgoal_predicate = goal_predicate
         policy, reached_goal, examples = self._unleash_rl_agent()
-        initiation_classifier = self._learn_initiation_set(examples[0], examples[1])
+        initiation_classifier = self._learn_initiation_classifier(examples[0], examples[1])
         init_predicate = Predicate(func=lambda s: initiation_classifier.predict([s])[0])
         learned_option = Option(init_predicate, goal_predicate, policy)
 
+        # While the policy is defined over the full state (for pendulum this is [cos(x), sin(x), xdot]), we are only
+        # visualizing x and the predicted labels
         if plot_initiation_set:
             thetas = map(lambda s: np.arccos(s.data[0]), policy.keys())
             predicted_labels = initiation_classifier.predict(self._construct_feature_matrix(policy.keys()))
@@ -51,14 +53,15 @@ class SkillChaining(object):
             plt.figure()
             plt.scatter(np.rad2deg(thetas), predicted_labels, c=true_labels, alpha=0.5)
             plt.xlabel('Theta')
-            plt.ylabel('Label')
+            plt.ylabel('Predicted label')
             plt.title('Initiation Set classifier training set')
+            plt.legend()
             plt.show()
 
         return learned_option
 
     @staticmethod
-    def _learn_initiation_set(positive_states, negative_states):
+    def _learn_initiation_classifier(positive_states, negative_states):
         """
         Construct a binary classifier for the current option.
         Args:
@@ -101,7 +104,7 @@ class SkillChaining(object):
 
 def construct_pendulum_domain(predicate):
     # Pendulum domain parameters
-    max_torque = 2.
+    max_torque = 1.5
 
     # Construct GymMDP wrapping around Gym's Pendulum MDP
     discretized_actions = np.arange(-max_torque, max_torque + 0.1, 0.1)
@@ -112,4 +115,4 @@ if __name__ == '__main__':
     goal_pred = Predicate(lambda s: (abs(s[0] - target_cos_theta) < cos_theta_tol))
     overall_mdp = construct_pendulum_domain(goal_pred)
     chainer = SkillChaining(overall_mdp)
-    lo = chainer.learn_option(goal_pred)
+    lo = chainer.learn_option(goal_pred, plot_initiation_set=True)
