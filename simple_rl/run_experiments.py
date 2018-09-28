@@ -380,9 +380,8 @@ def run_single_agent_on_mdp(agent, mdp, episodes, steps, experiment=None, verbos
 
             if isinstance(action, Option):
                 option_reward, state = action.execute_option_in_mdp(state, mdp, verbose=True)
-
-            # Execute in MDP.
-            reward, next_state = mdp.execute_agent_action(action)
+            else: # Primitive action
+                reward, next_state = mdp.execute_agent_action(action)
 
             # Add the reward achieved if we took any option
             reward += option_reward

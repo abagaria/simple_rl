@@ -1,13 +1,17 @@
 # Python imports.
 from collections import defaultdict
 import random
+from sklearn import svm
+import numpy as np
+from copy import deepcopy
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
+from simple_rl.agents.QLearningAgentClass import QLearningAgent
 
 class Option(object):
 
-	def __init__(self, init_predicate, term_predicate, policy, name="o", term_prob=0.01):
+	def __init__(self, init_predicate, term_predicate, policy, actions=[], name="o", term_prob=0.01):
 		'''
 		Args:
 			init_func (S --> {0,1})
@@ -26,6 +30,10 @@ class Option(object):
 		else:
 			self.policy = policy
 
+		self.solver = QLearningAgent(actions, name=self.name+'_q_solver')
+		self.initiation_data = []
+		self.initiation_classifier = svm.SVC()
+
 	def __hash__(self):
 		return hash(self.name)
 
@@ -43,6 +51,32 @@ class Option(object):
 
 	def set_name(self, new_name):
 		self.name = new_name
+
+	@staticmethod
+	def _construct_feature_matrix(states):
+		n_samples = len(states)
+		n_features = states[0].get_num_feats()
+		X = np.zeros((n_samples, n_features))
+		for row in range(X.shape[0]):
+			X[row, :] = states[row].features()
+		return X
+
+	@staticmethod
+	def _split_experience_into_pos_neg_examples(examples):
+
+		# Last quarter of the states in the experience buffer are treated as positive examples
+		r = 0.25
+		positive_examples = examples[-int(r * len(examples)):]
+		negative_examples = examples[:len(examples) - int(r * len(examples))]
+
+		return positive_examples, negative_examples
+
+	def train_initiation_classifier(self):
+		positive_examples, negative_examples = self._split_experience_into_pos_neg_examples(self.initiation_data)
+		X = self._construct_feature_matrix(positive_examples + negative_examples)
+		Y = np.array(([1] * len(positive_examples)) + ([0] * len(negative_examples)))
+
+		self.initiation_classifier.fit(X, Y)
 
 	def act_until_terminal(self, cur_state, transition_func):
 		'''
