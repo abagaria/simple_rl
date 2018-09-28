@@ -13,7 +13,7 @@ from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 
 def create_grid_word_option():
-    init_predicate = Predicate(func=lambda s: s.x < 3. and s.y < 3.)
+    init_predicate = Predicate(func=lambda s: s.x < 3. or s.y < 3.)
     term_predicate = Predicate(func=lambda s: s.x == 3. and s.y == 3.)
     policy = {GridWorldState(1., 1.): 'right', GridWorldState(2., 1.): 'right', GridWorldState(3., 1.): 'up',
               GridWorldState(1., 2.): 'right', GridWorldState(2., 2.): 'right', GridWorldState(2., 3.): 'up',
@@ -35,6 +35,10 @@ def main(open_plot=True):
     # Run experiment and make plot.
     run_agents_on_mdp([ql_agent, rand_agent], mdp, instances=5, episodes=50, steps=25, open_plot=open_plot,
                       track_disc_reward=False, verbose=True)
+
+    for x in range(1, 4):
+        for y in range(1, 4):
+            print 'ql_agent_pi[({}, {})] = {}'.format(x, y, ql_agent.policy(GridWorldState(float(x), float(y))))
 
 if __name__ == "__main__":
     main(open_plot=not sys.argv[-1] == "no_plot")

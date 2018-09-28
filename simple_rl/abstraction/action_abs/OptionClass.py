@@ -79,6 +79,17 @@ class Option(object):
 
 		return cur_state, total_reward
 
+	def execute_option_in_mdp(self, state, mdp, verbose=False):
+		if self.is_init_true(state):
+			if verbose: print("From state {}, taking option {}".format(state, self.name))
+			reward, state = mdp.execute_agent_action(self.act(state))
+			while not self.is_term_true(state):
+				if verbose: print("from state {}, taking action {}".format(state, self.act(state)))
+				r, state = mdp.execute_agent_action(self.act(state))
+				reward += r
+			return reward, state
+		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
+
 	def policy_from_dict(self, state):
 		if state not in self.policy_dict.keys():
 			self.term_flag = True

@@ -342,16 +342,7 @@ def run_single_agent_on_mdp(agent, mdp, episodes, steps, experiment=None, verbos
             option_reward = 0
 
             if isinstance(action, Option):
-                option = action # type: Option
-                if option.is_init_true(state):
-                    if verbose:
-                        print("From state {}, taking option {}".format(state, option))
-                    option_reward, state = mdp.execute_agent_action(option.act(state))
-                    while not option.is_term_true(state):
-                        if verbose:
-                            print("from state {}, taking action {}".format(state, option.act(state)))
-                        r2, state = mdp.execute_agent_action(option.act(state))
-                        option_reward += r2
+                option_reward, state = action.execute_option_in_mdp(state, mdp, verbose=True)
 
             # Execute in MDP.
             reward, next_state = mdp.execute_agent_action(action)
