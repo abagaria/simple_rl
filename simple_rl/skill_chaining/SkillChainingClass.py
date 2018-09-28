@@ -12,7 +12,7 @@ from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.AgentClass import Agent
 from simple_rl.run_experiments import run_agent_on_mdp
 from simple_rl.mdp.StateClass import State
-from simple_rl.agents import LinearQAgent
+from simple_rl.agents import QLearningAgent
 from simple_rl.tasks import GymMDP
 from sklearn import svm
 
@@ -24,7 +24,7 @@ class SkillChaining(object):
             rl_agent (Agent): RL agent used to determine the policy for each option
         """
         self.mdp = mdp
-        self.agent = rl_agent if rl_agent is not None else LinearQAgent(mdp.get_actions(), mdp.get_num_state_feats())
+        self.agent = rl_agent if rl_agent is not None else QLearningAgent(mdp.get_actions())
         self.subgoal_reward = 0.
 
     def learn_option(self, goal_predicate, plot_initiation_set=False):
@@ -55,7 +55,6 @@ class SkillChaining(object):
             plt.xlabel('Theta')
             plt.ylabel('Predicted label')
             plt.title('Initiation Set classifier training set')
-            plt.legend()
             plt.show()
 
         return learned_option
@@ -104,7 +103,7 @@ class SkillChaining(object):
 
 def construct_pendulum_domain(predicate):
     # Pendulum domain parameters
-    max_torque = 1.5
+    max_torque = 2.
 
     # Construct GymMDP wrapping around Gym's Pendulum MDP
     discretized_actions = np.arange(-max_torque, max_torque + 0.1, 0.1)
