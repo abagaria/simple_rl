@@ -4,10 +4,11 @@
 import random
 import numpy
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 
 # Other imports.
 from simple_rl.agents.AgentClass import Agent
+from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 
 class QLearningAgent(Agent):
     ''' Implementation for a Q Learning Agent '''

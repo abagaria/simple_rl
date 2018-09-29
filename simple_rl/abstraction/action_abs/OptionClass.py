@@ -8,10 +8,11 @@ from copy import deepcopy
 # Other imports.
 from simple_rl.mdp.StateClass import State
 from simple_rl.agents.QLearningAgentClass import QLearningAgent
+from simple_rl.tasks.gym.GymMDPClass import GymMDP
 
 class Option(object):
 
-	def __init__(self, init_predicate, term_predicate, policy, actions=[], name="o", term_prob=0.01):
+	def __init__(self, init_predicate, term_predicate, policy, overall_mdp, actions=[], name="o", term_prob=0.01):
 		'''
 		Args:
 			init_func (S --> {0,1})
@@ -34,6 +35,9 @@ class Option(object):
 		self.initiation_data = []
 		self.initiation_classifier = svm.SVC()
 
+		self.overall_mdp = overall_mdp
+		self.subgoal_mdp = self._create_subgoal_mdp()
+
 	def __hash__(self):
 		return hash(self.name)
 
@@ -51,6 +55,10 @@ class Option(object):
 
 	def set_name(self, new_name):
 		self.name = new_name
+
+	# TODO
+	def _create_subgoal_mdp(self):
+		return GymMDP(self.overall_mdp.actions, subgoal_predicate=self.term_predicate, env_name='Pendulum-v0', render=True)
 
 	@staticmethod
 	def _construct_feature_matrix(states):
@@ -77,6 +85,17 @@ class Option(object):
 		Y = np.array(([1] * len(positive_examples)) + ([0] * len(negative_examples)))
 
 		self.initiation_classifier.fit(X, Y)
+
+	def learn_policy_from_experience(self):
+		reward, policy = 0, defaultdict()
+		for state in self.initiation_data:
+			if self.init_predicate.is_true(state):
+				action = self.solver.act(state, reward)
+				reward = self.subgoal_mdp.execute_action_in_mdp(action)
+				policy[state] = action
+				print "Option solver::from {}, taking action {}".format(state, action)
+		self.policy_dict = policy
+		return policy
 
 	def act_until_terminal(self, cur_state, transition_func):
 		'''
