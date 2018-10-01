@@ -26,6 +26,7 @@ class GridWorldMDP(MDP):
     def __init__(self,
                 width=5,
                 height=3,
+                goal_predicate=None,
                 init_loc=(1,1),
                 rand_init=False,
                 goal_locs=[(5,3)],
@@ -71,6 +72,7 @@ class GridWorldMDP(MDP):
         self.slip_prob = slip_prob
         self.name = name
         self.lava_locs = lava_locs
+        self.goal_predicate = goal_predicate
 
     def set_slip_prob(self, slip_prob):
         self.slip_prob = slip_prob
@@ -79,6 +81,8 @@ class GridWorldMDP(MDP):
         return self.slip_prob
 
     def is_goal_state(self, state):
+        if self.goal_predicate:
+            return self.goal_predicate.is_true(state)
         return (state.x, state.y) in self.goal_locs
 
     def _reward_func(self, state, action):
@@ -106,17 +110,17 @@ class GridWorldMDP(MDP):
         Returns:
             (bool): True iff the state-action pair send the agent to the goal state.
         '''
-        if (state.x, state.y) in self.goal_locs and self.is_goal_terminal:
+        if self.is_goal_state(state) and self.is_goal_terminal:
             # Already at terminal.
             return False
 
-        if action == "left" and (state.x - 1, state.y) in self.goal_locs:
+        if action == "left" and self.is_goal_state(GridWorldState(state.x - 1, state.y)):
             return True
-        elif action == "right" and (state.x + 1, state.y) in self.goal_locs:
+        elif action == "right" and self.is_goal_state(GridWorldState(state.x + 1, state.y)):
             return True
-        elif action == "down" and (state.x, state.y - 1) in self.goal_locs:
+        elif action == "down" and self.is_goal_state(GridWorldState(state.x, state.y - 1)):
             return True
-        elif action == "up" and (state.x, state.y + 1) in self.goal_locs:
+        elif action == "up" and self.is_goal_state(GridWorldState(state.x, state.y + 1)):
             return True
         else:
             return False
@@ -156,7 +160,7 @@ class GridWorldMDP(MDP):
         else:
             next_state = GridWorldState(state.x, state.y)
 
-        if (next_state.x, next_state.y) in self.goal_locs and self.is_goal_terminal:
+        if self.is_goal_state(next_state) and self.is_goal_terminal:
             next_state.set_terminal(True)
 
         return next_state
