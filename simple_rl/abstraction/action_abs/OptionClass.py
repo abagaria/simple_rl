@@ -4,11 +4,13 @@ import random
 from sklearn import svm
 import numpy as np
 from copy import deepcopy
+import pdb
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
 from simple_rl.agents.QLearningAgentClass import QLearningAgent
-from simple_rl.tasks.gym.GymMDPClass import GymMDP
+from simple_rl.tasks.grid_world.GridWorldMDPClass import GridWorldMDP
+from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 
 class Option(object):
 
@@ -38,6 +40,12 @@ class Option(object):
 		self.overall_mdp = overall_mdp
 		self.subgoal_mdp = self._create_subgoal_mdp()
 
+	def __str__(self):
+		return self.name
+
+	def __repr__(self):
+		return str(self)
+
 	def __hash__(self):
 		return hash(self.name)
 
@@ -58,7 +66,7 @@ class Option(object):
 
 	# TODO
 	def _create_subgoal_mdp(self):
-		return GymMDP(self.overall_mdp.actions, subgoal_predicate=self.term_predicate, env_name='Pendulum-v0', render=True)
+		return GridWorldMDP(10, 10, goal_predicate=self.term_predicate)
 
 	@staticmethod
 	def _construct_feature_matrix(states):
@@ -73,9 +81,12 @@ class Option(object):
 	def _split_experience_into_pos_neg_examples(examples):
 
 		# Last quarter of the states in the experience buffer are treated as positive examples
-		r = 0.25
-		positive_examples = examples[-int(r * len(examples)):]
-		negative_examples = examples[:len(examples) - int(r * len(examples))]
+		r = 0.5
+		last_index = len(examples) - int(r * len(examples))
+		first_index = int(r * len(examples))
+
+		positive_examples = [examples[-i] for i in range(first_index)]
+		negative_examples = [examples[i] for i in range(last_index)]
 
 		return positive_examples, negative_examples
 
@@ -85,17 +96,27 @@ class Option(object):
 		Y = np.array(([1] * len(positive_examples)) + ([0] * len(negative_examples)))
 
 		self.initiation_classifier.fit(X, Y)
+		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s])[0], name=self.name+'_init_predicate')
 
+	# TODO: This is wrong. You need to call act() and execute_action() until the curr_state in the subgoal_mdp is_terminal()
 	def learn_policy_from_experience(self):
+		# print "{} learning policy from experience".format(self.name)
 		reward, policy = 0, defaultdict()
 		for state in self.initiation_data:
 			if self.init_predicate.is_true(state):
 				action = self.solver.act(state, reward)
-				reward = self.subgoal_mdp.execute_action_in_mdp(action)
+				reward, _ = self.subgoal_mdp.execute_agent_action(action)
 				policy[state] = action
-				print "Option solver::from {}, taking action {}".format(state, action)
 		self.policy_dict = policy
-		return policy
+
+	def create_child_option(self):
+		new_option_name = "option_{}".format(np.random.randint(0, 100))
+		term_pred = Predicate(func=lambda s: self.initiation_classifier.predict([s])[0],
+							  name=new_option_name + '_term_predicate')
+		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={},
+								  actions=self.subgoal_mdp.actions,
+								  overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.)
+		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):
 		'''
@@ -154,5 +175,19 @@ class Option(object):
 	def term_func_from_list(self, state):
 		return state in self.term_list
 
-	def __str__(self):
-		return "option." + str(self.name)
+	# --------------------------------------
+	# Debug methods
+	# --------------------------------------
+	def get_initiation_set(self):
+		initiation = []
+		for state in self.overall_mdp.get_states():
+			if self.init_predicate.is_true(state):
+				initiation.append(state)
+		return initiation
+
+	def get_termination_set(self):
+		terminal = []
+		for state in self.overall_mdp.get_states():
+			if self.term_predicate.is_true(state):
+				terminal.append(state)
+		return terminal

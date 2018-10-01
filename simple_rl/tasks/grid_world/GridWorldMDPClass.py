@@ -74,6 +74,14 @@ class GridWorldMDP(MDP):
         self.lava_locs = lava_locs
         self.goal_predicate = goal_predicate
 
+    # Debug method
+    def get_states(self):
+        states = []
+        for x in range(self.width + 1):
+            for y in range(self.height + 1):
+                states.append(GridWorldState(x, y))
+        return states
+
     def set_slip_prob(self, slip_prob):
         self.slip_prob = slip_prob
 
