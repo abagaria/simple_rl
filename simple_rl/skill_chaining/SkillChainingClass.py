@@ -6,7 +6,6 @@ import numpy as np
 import pdb
 from collections import deque, defaultdict
 from copy import deepcopy
-from IPython import embed
 
 # Other imports.
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
@@ -27,71 +26,71 @@ class SkillChaining(object):
         self.mdp = mdp
         self.original_actions = deepcopy(mdp.actions)
         self.overall_goal_predicate = overall_goal_predicate
-        self.global_solver = rl_agent if rl_agent is not None else QLearningAgent(mdp.get_actions())
+        self.global_solver = rl_agent if rl_agent is not None else QLearningAgent(mdp.get_actions(), name="GlobalSolver")
         self.buffer_length = buffer_length
 
         self.trained_options = []
-        self.untrained_options = []
 
-    def skill_chaining(self, num_episodes=15, num_steps=200):
+    def skill_chaining(self, num_episodes=100, num_steps=500):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
-                             actions=self.original_actions, policy={}, name='overall_goal_policy', term_prob=0.)
-        self.untrained_options.append(goal_option)
+                             init_state=self.mdp.init_state, actions=self.original_actions, policy={},
+                             name='overall_goal_policy', term_prob=0.)
+
+        # Pointer to the current option:
+        # 1. This option has the termination set which defines our current goal trigger
+        # 2. This option has an untrained initialization set, which we need to train from experience
+        untrained_option = goal_option
 
         for episode in range(num_episodes):
-
 
             print '-------------'
             print 'Episode = {}'.format(episode)
             print '-------------'
             self.mdp.reset()
-            state = self.mdp.init_state
+            state = deepcopy(self.mdp.init_state)
             reward = 0
             last_n_states = deque([], maxlen=self.buffer_length)
-            print '- Trained options = ', self.trained_options
-            print '- Untrained options = ', self.untrained_options
-
 
             for step in range(num_steps):
+                if reward > 0: print "Global-Q-Learning act() with R={}".format(reward)
                 action = self.global_solver.act(state, reward)
-                if isinstance(action, Option):
-                    print "\n\nWatchOut: global solver is using option {}\n\n".format(action.name)
-                    reward, next_state = action.execute_option_in_mdp(state, self.mdp, verbose=True)
-                else: # Primitive action
-                    reward, next_state = self.mdp.execute_agent_action(action)
+
+                # if isinstance(action, Option):
+                #     print "\n\nWatchOut: global solver is using option {}\n\n".format(action.name)
+                #     reward, next_state = action.execute_option_in_mdp(state, self.mdp, verbose=True)
+                # else: # Primitive action
+                reward, next_state = self.mdp.execute_agent_action(action)
+                if reward > 0: print "Global MDP: R={}\tS'={}".format(reward, next_state)
+
                 last_n_states.append(next_state)
+                state = next_state
 
-                print '({}, {}) --> {}'.format(state, action, next_state)
+                if untrained_option.is_term_true(next_state) and len(last_n_states) == self.buffer_length:
 
-                for untrained_option in self.untrained_options: # type: Option
-                    # print "Checking if {}'s termination function is true".format(untrained_option.name)
-                    if untrained_option.is_term_true(next_state) and len(last_n_states) == self.buffer_length:
-                        # Train the initiation set classifier for the option
-                        untrained_option.initiation_data = last_n_states
-                        untrained_option.train_initiation_classifier()
+                    # Train the initiation set classifier for the option
+                    untrained_option.initiation_data = last_n_states
+                    untrained_option.train_initiation_classifier()
 
-                        # Update the solver of the untrained option on all the states in its experience
-                        untrained_option.learn_policy_from_experience()
+                    # Update the solver of the untrained option on all the states in its experience
+                    untrained_option.learn_policy_from_experience()
 
-                        # Add the trained option to the action set of the global solver
-                        self.untrained_options.remove(untrained_option)
+                    # Add the trained option to the action set of the global solver
+                    if untrained_option not in self.trained_options:
                         self.trained_options.append(untrained_option)
+                    if untrained_option not in self.mdp.actions:
                         self.mdp.actions.append(untrained_option)
 
-                if len(self.trained_options) == 3:
-                    pdb.set_trace()
+                    # Create new option whose termination is the initiation of the option we just trained
+                    name = "option_{}".format(str(len(self.trained_options)))
 
-                # Create options whose goal predicate is the same as the initiation predicate of someone else
-                for trained_option in self.trained_options: # type: Option
+                    # Using the global init_state as the init_state for all child options
+                    untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
+                                                                            actions=self.original_actions,
+                                                                            new_option_name=name)
 
-                    # print "Checking if {}'s initiation function is true".format(trained_option.name)
-                    if trained_option.is_init_true(next_state):
-                        untrained_option = trained_option.create_child_option()
-                        self.untrained_options.append(untrained_option)
-                        # print 'Created option {}'.format(untrained_option.name)
-
-                state = next_state
+                    # Reset the agent so that we don't keep moving around the initiation set of the trained option
+                    break
 
 def construct_pendulum_domain():
     # Overall goal predicate in the Pendulum domain

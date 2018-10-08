@@ -14,7 +14,7 @@ from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 
 class Option(object):
 
-	def __init__(self, init_predicate, term_predicate, policy, overall_mdp, actions=[], name="o", term_prob=0.01):
+	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o", term_prob=0.01):
 		'''
 		Args:
 			init_func (S --> {0,1})
@@ -23,9 +23,13 @@ class Option(object):
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
+		self.init_state = init_state
 		self.term_flag = False
 		self.name = name
 		self.term_prob = term_prob
+
+		# if init_state.is_terminal() and not self.is_term_true(init_state):
+		init_state.set_terminal(False)
 
 		if type(policy) is defaultdict or type(policy) is dict:
 			self.policy_dict = dict(policy)
@@ -33,9 +37,9 @@ class Option(object):
 		else:
 			self.policy = policy
 
-		self.solver = QLearningAgent(actions, name=self.name+'_q_solver')
+		self.solver = QLearningAgent(actions, name=self.name+'_option_q_solver')
 		self.initiation_data = []
-		self.initiation_classifier = svm.SVC()
+		self.initiation_classifier = svm.SVC(kernel="rbf")
 
 		self.overall_mdp = overall_mdp
 		self.subgoal_mdp = self._create_subgoal_mdp()
@@ -49,11 +53,20 @@ class Option(object):
 	def __hash__(self):
 		return hash(self.name)
 
+# TODO: Akhil: This is a weird operator== definition
+	def __eq__(self, other):
+		if not isinstance(other, Option):
+			return False
+		return self.get_termination_set() == other.get_termination_set()
+
+	def __ne__(self, other):
+		return not self == other
+
 	def is_init_true(self, ground_state):
 		return self.init_predicate.is_true(ground_state)
 
 	def is_term_true(self, ground_state):
-		return self.term_predicate.is_true(ground_state) or self.term_flag or self.term_prob > random.random()
+		return self.term_predicate.is_true(ground_state) # or self.term_flag or self.term_prob > random.random()
 
 	def act(self, ground_state):
 		return self.policy(ground_state)
@@ -64,9 +77,9 @@ class Option(object):
 	def set_name(self, new_name):
 		self.name = new_name
 
-	# TODO
+	# TODO: Akhil: Check the init_state to make sure that mdp.execute_agent_action() is in sync with agent.act()
 	def _create_subgoal_mdp(self):
-		return GridWorldMDP(10, 10, goal_predicate=self.term_predicate)
+		return GridWorldMDP(10, 10, goal_predicate=self.term_predicate, init_state=self.init_state)
 
 	@staticmethod
 	def _construct_feature_matrix(states):
@@ -90,6 +103,7 @@ class Option(object):
 
 		return positive_examples, negative_examples
 
+	# TODO: Test this classifier
 	def train_initiation_classifier(self):
 		positive_examples, negative_examples = self._split_experience_into_pos_neg_examples(self.initiation_data)
 		X = self._construct_feature_matrix(positive_examples + negative_examples)
@@ -98,24 +112,29 @@ class Option(object):
 		self.initiation_classifier.fit(X, Y)
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s])[0], name=self.name+'_init_predicate')
 
-	# TODO: This is wrong. You need to call act() and execute_action() until the curr_state in the subgoal_mdp is_terminal()
-	def learn_policy_from_experience(self):
-		# print "{} learning policy from experience".format(self.name)
+	# TODO: Akhil: This is wrong. I should take the experience as input (s, a, r, s') and update the solver only on the basis of that.
+	def learn_policy_from_experience(self, num_episodes=10, num_steps=1000):
 		reward, policy = 0, defaultdict()
-		for state in self.initiation_data:
-			if self.init_predicate.is_true(state):
+		for _ in range(num_episodes):
+			self.subgoal_mdp.reset()
+			state = self.subgoal_mdp.init_state
+			for _ in range(num_steps):
 				action = self.solver.act(state, reward)
-				reward, _ = self.subgoal_mdp.execute_agent_action(action)
+				reward, state = self.subgoal_mdp.execute_agent_action(action)
+				if reward > 0: print "Subgoal option::{}_reward = {}".format(self, reward)
 				policy[state] = action
+				if state.is_terminal():
+					break
 		self.policy_dict = policy
 
-	def create_child_option(self):
-		new_option_name = "option_{}".format(np.random.randint(0, 100))
-		term_pred = Predicate(func=lambda s: self.initiation_classifier.predict([s])[0],
-							  name=new_option_name + '_term_predicate')
-		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={},
-								  actions=self.subgoal_mdp.actions,
-								  overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.)
+	def create_child_option(self, init_state, actions, new_option_name):
+		# TODO: Akhil: Bad Hack for dev
+		goal_state = sorted(self.get_initiation_set(), key=lambda s:s.x+s.y)[0]
+		print "creating new option with termination set: {}".format(goal_state)
+		term_pred = Predicate(func=lambda s: s == goal_state,
+							  name=new_option_name + '_term_predicate_goal_state_{}'.format(goal_state))
+		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
+								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.)
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):

@@ -13,7 +13,7 @@ from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 class QLearningAgent(Agent):
     ''' Implementation for a Q Learning Agent '''
 
-    def __init__(self, actions, name="Q-learning", alpha=0.1, gamma=0.99, epsilon=0.1, explore="uniform", anneal=False):
+    def __init__(self, actions, name="Q-learning", alpha=0.1, gamma=0.99, epsilon=0.3, explore="uniform", anneal=False):
         '''
         Args:
             actions (list): Contains strings denoting the actions.
@@ -133,6 +133,7 @@ class QLearningAgent(Agent):
         max_q_curr_state = self.get_max_q_value(next_state)
         prev_q_val = self.get_q_value(state, action)
         self.q_func[state][action] = (1 - self.alpha) * prev_q_val + self.alpha * (reward + self.gamma*max_q_curr_state)
+        # if self.q_func[state][action] > 0: print "{}[{}][{}] = {}".format(self.name, state, action, self.q_func[state][action])
 
     def _anneal(self):
         # Taken from "Note on learning rate schedules for stochastic optimization, by Darken and Moody (Yale)":

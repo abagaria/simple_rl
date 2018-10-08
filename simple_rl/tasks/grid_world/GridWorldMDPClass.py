@@ -6,6 +6,7 @@ import random
 import sys
 import os
 import numpy as np
+import pdb
 
 # Other imports.
 from simple_rl.mdp.MDPClass import MDP
@@ -59,14 +60,11 @@ class GridWorldMDP(MDP):
 
         MDP.__init__(self, GridWorldMDP.ACTIONS, self._transition_func, self._reward_func, init_state=init_state, gamma=gamma)
 
-        if type(goal_locs) is not list:
-            raise ValueError("(simple_rl) GridWorld Error: argument @goal_locs needs to be a list of locations. For example: [(3,3), (4,3)].")
         self.step_cost = step_cost
         self.lava_cost = lava_cost
         self.walls = walls
         self.width = width
         self.height = height
-        self.goal_locs = goal_locs
         self.cur_state = GridWorldState(init_loc[0], init_loc[1])
         self.is_goal_terminal = is_goal_terminal
         self.slip_prob = slip_prob
@@ -91,7 +89,6 @@ class GridWorldMDP(MDP):
     def is_goal_state(self, state):
         if self.goal_predicate:
             return self.goal_predicate.is_true(state)
-        return (state.x, state.y) in self.goal_locs
 
     def _reward_func(self, state, action):
         '''
@@ -190,9 +187,6 @@ class GridWorldMDP(MDP):
 
     def __repr__(self):
         return self.__str__()
-
-    def get_goal_locs(self):
-        return self.goal_locs
 
     def get_lava_locs(self):
         return self.lava_locs
