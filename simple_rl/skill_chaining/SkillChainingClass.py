@@ -15,7 +15,7 @@ from simple_rl.agents import QLearningAgent
 from simple_rl.tasks import GymMDP, GridWorldMDP
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent=None, buffer_length=40):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent=None, buffer_length=40, subgoal_reward=1.):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -28,6 +28,7 @@ class SkillChaining(object):
         self.overall_goal_predicate = overall_goal_predicate
         self.global_solver = rl_agent if rl_agent is not None else QLearningAgent(mdp.get_actions(), name="GlobalSolver")
         self.buffer_length = buffer_length
+        self.subgoal_reward = subgoal_reward
 
         self.trained_options = []
 
@@ -71,6 +72,9 @@ class SkillChaining(object):
                 state = next_state
 
                 if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length:
+
+                    # Since we hit a subgoal, modify the last experience to reflect the augmented reward
+                    experience_buffer[-1] = (state_buffer[-1], action, reward + self.subgoal_reward, next_state)
 
                     # Train the initiation set classifier for the option
                     untrained_option.initiation_data = state_buffer
