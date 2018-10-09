@@ -50,7 +50,8 @@ class SkillChaining(object):
             self.mdp.reset()
             state = deepcopy(self.mdp.init_state)
             reward = 0
-            last_n_states = deque([], maxlen=self.buffer_length)
+            experience_buffer = deque([], maxlen=self.buffer_length)
+            state_buffer = deque([], maxlen=self.buffer_length)
 
             for step in range(num_steps):
                 if reward > 0: print "Global-Q-Learning act() with R={}".format(reward)
@@ -61,19 +62,27 @@ class SkillChaining(object):
                 #     reward, next_state = action.execute_option_in_mdp(state, self.mdp, verbose=True)
                 # else: # Primitive action
                 reward, next_state = self.mdp.execute_agent_action(action)
-                if reward > 0: print "Global MDP: R={}\tS'={}".format(reward, next_state)
+                if reward > 0: print "{}'s MDP: R={}\tS'={}".format(untrained_option.name, reward, next_state)
 
-                last_n_states.append(next_state)
+                # TODO: Akhil: `reward` should be based on the subgoal mdp somehow.
+                experience_buffer.append((state, action, reward, next_state))
+                state_buffer.append(state)
+
                 state = next_state
 
-                if untrained_option.is_term_true(next_state) and len(last_n_states) == self.buffer_length:
+                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length:
 
                     # Train the initiation set classifier for the option
-                    untrained_option.initiation_data = last_n_states
+                    untrained_option.initiation_data = state_buffer
                     untrained_option.train_initiation_classifier()
 
                     # Update the solver of the untrained option on all the states in its experience
+                    untrained_option.experience_buffer = experience_buffer
                     untrained_option.learn_policy_from_experience()
+
+                    # The max of the qvalues sampled during the transitions that triggered the option's target event
+                    # is used to initialize the solver of the new untrained option.
+                    max_qvalue = max([untrained_option.solver.get_max_q_value(s) for s in untrained_option.initiation_data])
 
                     # Add the trained option to the action set of the global solver
                     if untrained_option not in self.trained_options:
@@ -87,7 +96,8 @@ class SkillChaining(object):
                     # Using the global init_state as the init_state for all child options
                     untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
                                                                             actions=self.original_actions,
-                                                                            new_option_name=name)
+                                                                            new_option_name=name,
+                                                                            default_q=max_qvalue)
 
                     # Reset the agent so that we don't keep moving around the initiation set of the trained option
                     break

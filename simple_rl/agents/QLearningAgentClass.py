@@ -13,7 +13,7 @@ from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 class QLearningAgent(Agent):
     ''' Implementation for a Q Learning Agent '''
 
-    def __init__(self, actions, name="Q-learning", alpha=0.1, gamma=0.99, epsilon=0.3, explore="uniform", anneal=False):
+    def __init__(self, actions, default_q=0., name="Q-learning", alpha=0.1, gamma=0.99, epsilon=0.3, explore="uniform", anneal=False):
         '''
         Args:
             actions (list): Contains strings denoting the actions.
@@ -31,7 +31,7 @@ class QLearningAgent(Agent):
         self.epsilon, self.epsilon_init = epsilon, epsilon
         self.step_number = 0
         self.anneal = anneal
-        self.default_q = 0 #1 / (1 - self.gamma)
+        self.default_q = default_q
         self.explore = explore
 
         # Q Function:

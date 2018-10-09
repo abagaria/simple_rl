@@ -1,5 +1,5 @@
 # Python imports.
-from collections import defaultdict
+from collections import defaultdict, deque
 import random
 from sklearn import svm
 import numpy as np
@@ -14,7 +14,8 @@ from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 
 class Option(object):
 
-	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o", term_prob=0.01):
+	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
+				 term_prob=0.01, default_q=0.):
 		'''
 		Args:
 			init_func (S --> {0,1})
@@ -37,8 +38,9 @@ class Option(object):
 		else:
 			self.policy = policy
 
-		self.solver = QLearningAgent(actions, name=self.name+'_option_q_solver')
+		self.solver = QLearningAgent(actions, name=self.name+'_option_q_solver', default_q=default_q)
 		self.initiation_data = []
+		self.experience_buffer = deque()
 		self.initiation_classifier = svm.SVC(kernel="rbf")
 
 		self.overall_mdp = overall_mdp
@@ -112,29 +114,26 @@ class Option(object):
 		self.initiation_classifier.fit(X, Y)
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s])[0], name=self.name+'_init_predicate')
 
-	# TODO: Akhil: This is wrong. I should take the experience as input (s, a, r, s') and update the solver only on the basis of that.
-	def learn_policy_from_experience(self, num_episodes=10, num_steps=1000):
-		reward, policy = 0, defaultdict()
-		for _ in range(num_episodes):
-			self.subgoal_mdp.reset()
-			state = self.subgoal_mdp.init_state
-			for _ in range(num_steps):
-				action = self.solver.act(state, reward)
-				reward, state = self.subgoal_mdp.execute_agent_action(action)
-				if reward > 0: print "Subgoal option::{}_reward = {}".format(self, reward)
-				policy[state] = action
-				if state.is_terminal():
-					break
-		self.policy_dict = policy
+	def learn_policy_from_experience(self, alpha=0.3, default_q=0.):
+		Q = defaultdict(lambda : defaultdict(lambda : default_q))
+		# Loop to propagate the value of the goal state, action pair further
+		for _ in range(50):
+			for experience in self.experience_buffer:
+				s, a, r, s_prime = experience
+				max_q_prime = max([Q[s_prime][a_prime] for a_prime in self.subgoal_mdp.actions])
+				Q[s][a] = (1. - alpha) * Q[s][a] + alpha * (r + self.subgoal_mdp.gamma * max_q_prime)
+				self.policy_dict[s] = max(Q[s], key=Q[s].get)
+		self.solver.q_func = Q
 
-	def create_child_option(self, init_state, actions, new_option_name):
+	def create_child_option(self, init_state, actions, new_option_name, default_q=0.):
 		# TODO: Akhil: Bad Hack for dev
 		goal_state = sorted(self.get_initiation_set(), key=lambda s:s.x+s.y)[0]
 		print "creating new option with termination set: {}".format(goal_state)
 		term_pred = Predicate(func=lambda s: s == goal_state,
 							  name=new_option_name + '_term_predicate_goal_state_{}'.format(goal_state))
 		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
-								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.)
+								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
+								  default_q=default_q)
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):

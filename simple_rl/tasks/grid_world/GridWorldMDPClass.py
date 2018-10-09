@@ -89,6 +89,7 @@ class GridWorldMDP(MDP):
     def is_goal_state(self, state):
         if self.goal_predicate:
             return self.goal_predicate.is_true(state)
+        raise ValueError("Please provide goal predicate.")
 
     def _reward_func(self, state, action):
         '''
