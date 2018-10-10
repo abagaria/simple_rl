@@ -39,12 +39,15 @@ class Option(object):
 			self.policy = policy
 
 		self.solver = QLearningAgent(actions, name=self.name+'_option_q_solver', default_q=default_q)
-		self.initiation_data = []
-		self.experience_buffer = deque()
 		self.initiation_classifier = svm.SVC(kernel="rbf")
+
+		# List of buffers: will use these to train the initiation classifier and the local policy respectively
+		self.initiation_data = []
+		self.experience_buffer = []
 
 		self.overall_mdp = overall_mdp
 		self.subgoal_mdp = self._create_subgoal_mdp()
+		self.num_goal_hits = 0
 
 	def __str__(self):
 		return self.name
@@ -105,9 +108,17 @@ class Option(object):
 
 		return positive_examples, negative_examples
 
+	@staticmethod
+	def _combine_buffers(buffers):
+		overall_size = sum([b.maxlen for b in buffers])
+		buffer = [list(b) for b in buffers]
+		flatten = lambda l: [item for sublist in l for item in sublist]
+		return deque(flatten(buffer), maxlen=overall_size)
+
 	# TODO: Test this classifier
 	def train_initiation_classifier(self):
-		positive_examples, negative_examples = self._split_experience_into_pos_neg_examples(self.initiation_data)
+		initiation_data = self._combine_buffers(self.initiation_data)
+		positive_examples, negative_examples = self._split_experience_into_pos_neg_examples(initiation_data)
 		X = self._construct_feature_matrix(positive_examples + negative_examples)
 		Y = np.array(([1] * len(positive_examples)) + ([0] * len(negative_examples)))
 
@@ -115,10 +126,11 @@ class Option(object):
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s])[0], name=self.name+'_init_predicate')
 
 	def learn_policy_from_experience(self, alpha=0.3, default_q=0.):
+		experience_buffer = self._combine_buffers(self.experience_buffer)
 		Q = defaultdict(lambda : defaultdict(lambda : default_q))
 		# Loop to propagate the value of the goal state, action pair further
 		for _ in range(50):
-			for experience in self.experience_buffer:
+			for experience in experience_buffer:
 				s, a, r, s_prime = experience
 				max_q_prime = max([Q[s_prime][a_prime] for a_prime in self.subgoal_mdp.actions])
 				Q[s][a] = (1. - alpha) * Q[s][a] + alpha * (r + self.subgoal_mdp.gamma * max_q_prime)
@@ -127,7 +139,8 @@ class Option(object):
 
 	def create_child_option(self, init_state, actions, new_option_name, default_q=0.):
 		# TODO: Akhil: Bad Hack for dev
-		goal_state = sorted(self.get_initiation_set(), key=lambda s:s.x+s.y)[0]
+		# goal_state = sorted(self.get_initiation_set(), key=lambda s:s.x+s.y)[0]
+		goal_state = random.choice(self.get_initiation_set())
 		print "creating new option with termination set: {}".format(goal_state)
 		term_pred = Predicate(func=lambda s: s == goal_state,
 							  name=new_option_name + '_term_predicate_goal_state_{}'.format(goal_state))

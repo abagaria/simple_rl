@@ -1,4 +1,5 @@
 # Python imports.
+from __future__ import print_function
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -15,7 +16,7 @@ from simple_rl.agents import QLearningAgent
 from simple_rl.tasks import GymMDP, GridWorldMDP
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent=None, buffer_length=40, subgoal_reward=1.):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent=None, buffer_length=40, subgoal_reward=1., subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -29,10 +30,11 @@ class SkillChaining(object):
         self.global_solver = rl_agent if rl_agent is not None else QLearningAgent(mdp.get_actions(), name="GlobalSolver")
         self.buffer_length = buffer_length
         self.subgoal_reward = subgoal_reward
+        self.num_goal_hits_before_training = subgoal_hits
 
         self.trained_options = []
 
-    def skill_chaining(self, num_episodes=100, num_steps=500):
+    def skill_chaining(self, num_episodes=200, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -45,9 +47,9 @@ class SkillChaining(object):
 
         for episode in range(num_episodes):
 
-            print '-------------'
-            print 'Episode = {}'.format(episode)
-            print '-------------'
+            print('-------------')
+            print('Episode = {}'.format(episode))
+            print('-------------')
             self.mdp.reset()
             state = deepcopy(self.mdp.init_state)
             reward = 0
@@ -55,7 +57,6 @@ class SkillChaining(object):
             state_buffer = deque([], maxlen=self.buffer_length)
 
             for step in range(num_steps):
-                if reward > 0: print "Global-Q-Learning act() with R={}".format(reward)
                 action = self.global_solver.act(state, reward)
 
                 # if isinstance(action, Option):
@@ -63,45 +64,50 @@ class SkillChaining(object):
                 #     reward, next_state = action.execute_option_in_mdp(state, self.mdp, verbose=True)
                 # else: # Primitive action
                 reward, next_state = self.mdp.execute_agent_action(action)
-                if reward > 0: print "{}'s MDP: R={}\tS'={}".format(untrained_option.name, reward, next_state)
 
-                # TODO: Akhil: `reward` should be based on the subgoal mdp somehow.
                 experience_buffer.append((state, action, reward, next_state))
                 state_buffer.append(state)
 
                 state = next_state
 
                 if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length:
+                    print("Entered the goal state for option {}.".format(untrained_option))
 
                     # Since we hit a subgoal, modify the last experience to reflect the augmented reward
                     experience_buffer[-1] = (state_buffer[-1], action, reward + self.subgoal_reward, next_state)
 
-                    # Train the initiation set classifier for the option
-                    untrained_option.initiation_data = state_buffer
-                    untrained_option.train_initiation_classifier()
+                    untrained_option.num_goal_hits += 1
+                    untrained_option.initiation_data.append(state_buffer)
+                    untrained_option.experience_buffer.append(experience_buffer)
 
-                    # Update the solver of the untrained option on all the states in its experience
-                    untrained_option.experience_buffer = experience_buffer
-                    untrained_option.learn_policy_from_experience()
+                    if untrained_option.num_goal_hits >= self.num_goal_hits_before_training:
+                        print("Training the initiation set and policy for {}.".format(untrained_option.name))
+                        # Train the initiation set classifier for the option
+                        untrained_option.train_initiation_classifier()
 
-                    # The max of the qvalues sampled during the transitions that triggered the option's target event
-                    # is used to initialize the solver of the new untrained option.
-                    max_qvalue = max([untrained_option.solver.get_max_q_value(s) for s in untrained_option.initiation_data])
+                        # Update the solver of the untrained option on all the states in its experience
+                        untrained_option.learn_policy_from_experience()
 
-                    # Add the trained option to the action set of the global solver
-                    if untrained_option not in self.trained_options:
-                        self.trained_options.append(untrained_option)
-                    if untrained_option not in self.mdp.actions:
-                        self.mdp.actions.append(untrained_option)
+                        # The max of the qvalues sampled during the transitions that triggered the option's target event
+                        # is used to initialize the solver of the new untrained option.
+                        max_qvalue = 0. # max([untrained_option.solver.get_max_q_value(s) for s in untrained_option.initiation_data])
 
-                    # Create new option whose termination is the initiation of the option we just trained
-                    name = "option_{}".format(str(len(self.trained_options)))
+                        # Add the trained option to the action set of the global solver
+                        if untrained_option not in self.trained_options:
+                            self.trained_options.append(untrained_option)
+                        if untrained_option not in self.mdp.actions:
+                            self.mdp.actions.append(untrained_option)
 
-                    # Using the global init_state as the init_state for all child options
-                    untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
-                                                                            actions=self.original_actions,
-                                                                            new_option_name=name,
-                                                                            default_q=max_qvalue)
+                        # Create new option whose termination is the initiation of the option we just trained
+                        name = "option_{}".format(str(len(self.trained_options)))
+
+                        print("Creating {}".format(name))
+
+                        # Using the global init_state as the init_state for all child options
+                        untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
+                                                                                actions=self.original_actions,
+                                                                                new_option_name=name,
+                                                                                default_q=max_qvalue)
 
                     # Reset the agent so that we don't keep moving around the initiation set of the trained option
                     break

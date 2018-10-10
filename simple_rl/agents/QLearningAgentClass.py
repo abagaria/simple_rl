@@ -17,11 +17,13 @@ class QLearningAgent(Agent):
         '''
         Args:
             actions (list): Contains strings denoting the actions.
+            default_q (float): value to initialize all Q(s, a) with.
             name (str): Denotes the name of the agent.
             alpha (float): Learning rate.
             gamma (float): Discount factor.
             epsilon (float): Exploration term.
             explore (str): One of {softmax, uniform}. Denotes explore policy.
+            anneal (bool): whether or not to decay the learning rate and exploration param over time.
         '''
         name_ext = "-" + explore if explore != "uniform" else ""
         Agent.__init__(self, name=name + name_ext, actions=actions, gamma=gamma)
