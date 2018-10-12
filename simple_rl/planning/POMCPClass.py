@@ -3,7 +3,6 @@ from __future__ import print_function
 from collections import defaultdict
 import random
 import numpy as np
-import pdb
 
 # Other imports.
 from simple_rl.planning.PlannerClass import Planner
@@ -33,6 +32,7 @@ class POMCP(Planner):
         self.exploration_param = exploration_param
         self.init_visits = init_visits
         self.init_value = init_value
+        self.start_time = time.time()
 
         Planner.__init__(self, pomdp, name='pomcp')
 
@@ -43,7 +43,6 @@ class POMCP(Planner):
         policy = defaultdict()
         self.mdp.reset()
         while not self.mdp.is_in_goal_state():
-            print('Calling _search() from history = {}'.format(history))
             action = self._search(history)
             reward, observation, _ = self.mdp.execute_agent_action(action)
             policy[history] = action
@@ -76,13 +75,11 @@ class POMCP(Planner):
         Returns:
             action (str)
         '''
-        start_time = time.time()
-        while time.time() - start_time < self.max_time_duration:
+        while time.time() - self.start_time < self.max_time_duration:
             if len(history) == 0:
                 state = self.initial_belief.sample(sampling_method='random')
             else:
-                particles = self.search_tree[history][2]
-                state = random.choice(particles)
+                state = random.choice(history)
             self._simulate(state, history, 0)
 
         return self._greedy_action(history)
