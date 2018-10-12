@@ -15,7 +15,7 @@ from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
-				 term_prob=0.01, default_q=0., train_every_n_new_experiences=7000):
+				 term_prob=0.01, default_q=0., train_every_n_new_experiences=5000):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -52,6 +52,7 @@ class Option(object):
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
 		self.initiation_data = []
 		self.experience_buffer = []
+		self.new_experience_buffer = deque([], maxlen=50)
 
 		self.overall_mdp = overall_mdp
 		self.subgoal_mdp = self._create_subgoal_mdp()
@@ -135,10 +136,14 @@ class Option(object):
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s])[0], name=self.name+'_init_predicate')
 
 	# TODO: Rewrite the Q function in here so that we dont have to retrain pi from scratch.
-	def learn_policy_from_experience(self, alpha=0.3, default_q=0.):
-		experience_buffer = self._combine_buffers(self.experience_buffer)
+	def learn_policy_from_experience(self, alpha=0.3, use_new_experiences=False):
+		
+		if use_new_experiences:
+			experience_buffer = self.new_experience_buffer
+		else:
+			experience_buffer = self._combine_buffers(self.experience_buffer)
+
 		Q = self.solver.q_func
-		# Loop to propagate the value of the goal state, action pair further
 		for _ in range(50):
 			for experience in experience_buffer:
 				s, a, r, s_prime = experience
@@ -156,7 +161,7 @@ class Option(object):
 		Args:
 			experience (tuple): (state, action, reward, next_state)
 		"""
-		self.experience_buffer.append(deque([experience], maxlen=1))
+		self.new_experience_buffer.append(experience)
 
 	def maybe_update_policy(self, experience):
 		"""
@@ -169,8 +174,7 @@ class Option(object):
 			self.expand_experience_buffer(experience)
 			self.num_experiences_since_training += 1
 			if self.num_experiences_since_training % self.train_every == 0:
-				pdb.set_trace()
-				self.learn_policy_from_experience()
+				self.learn_policy_from_experience(use_new_experiences=True)
 
 	def create_child_option(self, init_state, actions, new_option_name, default_q=0.):
 		# TODO: Akhil: Bad Hack for dev

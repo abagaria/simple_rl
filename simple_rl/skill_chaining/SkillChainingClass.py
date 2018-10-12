@@ -23,6 +23,8 @@ class SkillChaining(object):
             overall_goal_predicate (Predicate)
             rl_agent (Agent): RL agent used to determine the policy for each option
             buffer_length (int): size of the circular buffer used as experience buffer
+            subgoal_reward (float): Hitting a subgoal must yield a supplementary reward to enable local policy
+            subgoal_hits (int): number of times the RL agent has to hit the goal of an option o to learn its I_o, Beta_o
         """
         self.mdp = mdp
         self.original_actions = deepcopy(mdp.actions)
@@ -156,7 +158,7 @@ def construct_pendulum_domain():
 
 def construct_grid_world_mdp():
     predicate = Predicate(func=lambda s: s.x == 10 and s.y == 10, name='OverallOption_GoalPredicate')
-    return GridWorldMDP(10, 10, goal_predicate=predicate)
+    return GridWorldMDP(10, 10, goal_predicate=predicate, slip_prob=0.2)
 
 if __name__ == '__main__':
     overall_mdp = construct_grid_world_mdp()
