@@ -3,6 +3,7 @@ GymMDPClass.py: Contains implementation for MDPs of the Gym Environments.
 '''
 
 # Python imports.
+from __future__ import print_function
 import random
 import sys
 import os
@@ -46,7 +47,7 @@ class GymMDP(MDP):
         obs, reward, is_terminal, info = self.env.step([action])
 
         if self.render:
-            print 'Torque={}\tNewState={}\tReward={}'.format(action, obs, reward)
+            print('Torque={}\tNewState={}\tReward={}'.format(action, obs, reward))
             self.env.render()
 
         if self.subgoal_predicate is not None:

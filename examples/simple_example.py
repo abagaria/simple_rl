@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # Python imports.
+from __future__ import print_function
 import sys
 
 # Other imports.
@@ -38,7 +39,7 @@ def main(open_plot=True):
 
     for x in range(1, 4):
         for y in range(1, 4):
-            print 'ql_agent_pi[({}, {})] = {}'.format(x, y, ql_agent.policy(GridWorldState(float(x), float(y))))
+            print('ql_agent_pi[({}, {})] = {}'.format(x, y, ql_agent.policy(GridWorldState(float(x), float(y)))))
 
 if __name__ == "__main__":
     main(open_plot=not sys.argv[-1] == "no_plot")

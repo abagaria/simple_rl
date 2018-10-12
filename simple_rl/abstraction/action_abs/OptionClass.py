@@ -1,4 +1,5 @@
 # Python imports.
+from __future__ import print_function
 from collections import defaultdict, deque
 import random
 from sklearn import svm
@@ -121,9 +122,9 @@ class Option(object):
 	@staticmethod
 	def _combine_buffers(buffers):
 		overall_size = sum([b.maxlen for b in buffers])
-		buffer = [list(b) for b in buffers]
+		buffer_list = [list(b) for b in buffers]
 		flatten = lambda l: [item for sublist in l for item in sublist]
-		return deque(flatten(buffer), maxlen=overall_size)
+		return deque(flatten(buffer_list), maxlen=overall_size)
 
 	# TODO: Test this classifier
 	def train_initiation_classifier(self):
@@ -180,7 +181,7 @@ class Option(object):
 		# TODO: Akhil: Bad Hack for dev
 		# goal_state = sorted(self.get_initiation_set(), key=lambda s:s.x+s.y)[0]
 		goal_state = random.choice(self.get_initiation_set())
-		print "creating new option with termination set: {}".format(goal_state)
+		print("creating new option with termination set: {}".format(goal_state))
 		term_pred = Predicate(func=lambda s: s == goal_state,
 							  name=new_option_name + '_term_predicate_goal_state_{}'.format(goal_state))
 		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
