@@ -15,12 +15,20 @@ from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
-				 term_prob=0.01, default_q=0.):
+				 term_prob=0.01, default_q=0., train_every_n_new_experiences=7000):
 		'''
 		Args:
-			init_func (S --> {0,1})
-			init_func (S --> {0,1})
+			init_predicate (S --> {0,1})
+			term_predicate (S --> {0,1})
+			init_state (State)
 			policy (S --> A)
+			overall_mdp (MDP)
+			actions (list)
+			name (str)
+			term_prob (float)
+			default_q (float)
+            train_every_n_new_experiences (int): After initial training of an option, if you see
+            >= `train_every_n_new_experiences`, then update the policy for that option
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -48,6 +56,8 @@ class Option(object):
 		self.overall_mdp = overall_mdp
 		self.subgoal_mdp = self._create_subgoal_mdp()
 		self.num_goal_hits = 0
+		self.num_experiences_since_training = 0
+		self.train_every = train_every_n_new_experiences
 
 	def __str__(self):
 		return self.name
@@ -58,7 +68,6 @@ class Option(object):
 	def __hash__(self):
 		return hash(self.name)
 
-# TODO: Akhil: This is a weird operator== definition
 	def __eq__(self, other):
 		if not isinstance(other, Option):
 			return False
@@ -98,7 +107,7 @@ class Option(object):
 	@staticmethod
 	def _split_experience_into_pos_neg_examples(examples):
 
-		# Last quarter of the states in the experience buffer are treated as positive examples
+		# Fraction of the states in the experience buffer are treated as positive examples
 		r = 0.5
 		last_index = len(examples) - int(r * len(examples))
 		first_index = int(r * len(examples))
@@ -125,9 +134,10 @@ class Option(object):
 		self.initiation_classifier.fit(X, Y)
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s])[0], name=self.name+'_init_predicate')
 
+	# TODO: Rewrite the Q function in here so that we dont have to retrain pi from scratch.
 	def learn_policy_from_experience(self, alpha=0.3, default_q=0.):
 		experience_buffer = self._combine_buffers(self.experience_buffer)
-		Q = defaultdict(lambda : defaultdict(lambda : default_q))
+		Q = self.solver.q_func
 		# Loop to propagate the value of the goal state, action pair further
 		for _ in range(50):
 			for experience in experience_buffer:
@@ -136,6 +146,31 @@ class Option(object):
 				Q[s][a] = (1. - alpha) * Q[s][a] + alpha * (r + self.subgoal_mdp.gamma * max_q_prime)
 				self.policy_dict[s] = max(Q[s], key=Q[s].get)
 		self.solver.q_func = Q
+
+	def expand_experience_buffer(self, experience):
+		"""
+		After an Option is trained, you may still enter its Initiation set. If this happens more than N
+		times, then we should use that experience to update the current option's policy. This method expands
+		the experience buffer of the current option every time the agent walks into its initiation set post
+		initial training.
+		Args:
+			experience (tuple): (state, action, reward, next_state)
+		"""
+		self.experience_buffer.append(deque([experience], maxlen=1))
+
+	def maybe_update_policy(self, experience):
+		"""
+		If we hit the initiation set of a trained option, we may want to update its policy.
+		Args:
+			experience (tuple): (s, a, r, s')
+		"""
+		state, action, reward, next_state = experience
+		if self.is_init_true(next_state):
+			self.expand_experience_buffer(experience)
+			self.num_experiences_since_training += 1
+			if self.num_experiences_since_training % self.train_every == 0:
+				pdb.set_trace()
+				self.learn_policy_from_experience()
 
 	def create_child_option(self, init_state, actions, new_option_name, default_q=0.):
 		# TODO: Akhil: Bad Hack for dev

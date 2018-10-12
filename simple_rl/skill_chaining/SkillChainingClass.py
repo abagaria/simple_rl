@@ -10,7 +10,7 @@ from copy import deepcopy
 
 # Other imports.
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
-
+from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.AgentClass import Agent
 from simple_rl.agents import QLearningAgent
 from simple_rl.tasks import GymMDP, GridWorldMDP
@@ -34,6 +34,52 @@ class SkillChaining(object):
 
         self.trained_options = []
 
+    def _train_untrained_option(self, untrained_option):
+        """
+        Train the current untrained option and initialize a new one to target.
+        Args:
+            untrained_option (Option)
+
+        Returns:
+            new_untrained_option (Option)
+        """
+        print("Training the initiation set and policy for {}.".format(untrained_option.name))
+        # Train the initiation set classifier for the option
+        untrained_option.train_initiation_classifier()
+
+        # Update the solver of the untrained option on all the states in its experience
+        untrained_option.learn_policy_from_experience()
+
+        # The max of the qvalues sampled during the transitions that triggered the option's target event
+        # is used to initialize the solver of the new untrained option.
+        max_qvalue = 0.  # max([untrained_option.solver.get_max_q_value(s) for s in untrained_option.initiation_data])
+
+        # Add the trained option to the action set of the global solver
+        if untrained_option not in self.trained_options:
+            self.trained_options.append(untrained_option)
+        if untrained_option not in self.mdp.actions:
+            self.mdp.actions.append(untrained_option)
+
+        # Create new option whose termination is the initiation of the option we just trained
+        name = "option_{}".format(str(len(self.trained_options)))
+
+        print("Creating {}".format(name))
+
+        # Using the global init_state as the init_state for all child options
+        new_untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
+                                                                actions=self.original_actions,
+                                                                new_option_name=name,
+                                                                default_q=max_qvalue)
+        return new_untrained_option
+
+    def _get_trained_options(self, new_option_just_created):
+        trained_options = []
+        if new_option_just_created and len(self.trained_options) > 1:
+            trained_options = self.trained_options[:-2]
+        elif not new_option_just_created:
+            trained_options = self.trained_options
+        return trained_options
+
     def skill_chaining(self, num_episodes=200, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
@@ -51,6 +97,7 @@ class SkillChaining(object):
             print('Episode = {}'.format(episode))
             print('-------------')
             self.mdp.reset()
+            reset_agent = False
             state = deepcopy(self.mdp.init_state)
             reward = 0
             experience_buffer = deque([], maxlen=self.buffer_length)
@@ -65,52 +112,35 @@ class SkillChaining(object):
                 # else: # Primitive action
                 reward, next_state = self.mdp.execute_agent_action(action)
 
-                experience_buffer.append((state, action, reward, next_state))
+                experience = state, action, reward, next_state
+                experience_buffer.append(experience)
                 state_buffer.append(state)
-
-                state = next_state
 
                 if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length:
                     print("Entered the goal state for option {}.".format(untrained_option))
 
-                    # Since we hit a subgoal, modify the last experience to reflect the augmented reward
-                    experience_buffer[-1] = (state_buffer[-1], action, reward + self.subgoal_reward, next_state)
+                    # If we hit a subgoal, modify the last experience to reflect the augmented reward
+                    if untrained_option.name != goal_option:
+                        experience_buffer[-1] = (state, action, reward + self.subgoal_reward, next_state)
 
                     untrained_option.num_goal_hits += 1
                     untrained_option.initiation_data.append(state_buffer)
                     untrained_option.experience_buffer.append(experience_buffer)
 
                     if untrained_option.num_goal_hits >= self.num_goal_hits_before_training:
-                        print("Training the initiation set and policy for {}.".format(untrained_option.name))
-                        # Train the initiation set classifier for the option
-                        untrained_option.train_initiation_classifier()
+                        untrained_option = self._train_untrained_option(untrained_option)
 
-                        # Update the solver of the untrained option on all the states in its experience
-                        untrained_option.learn_policy_from_experience()
+                    reset_agent = True
 
-                        # The max of the qvalues sampled during the transitions that triggered the option's target event
-                        # is used to initialize the solver of the new untrained option.
-                        max_qvalue = 0. # max([untrained_option.solver.get_max_q_value(s) for s in untrained_option.initiation_data])
+                for trained_option in self._get_trained_options(new_option_just_created=reset_agent): # type: Option
+                    trained_option.maybe_update_policy(experience)
 
-                        # Add the trained option to the action set of the global solver
-                        if untrained_option not in self.trained_options:
-                            self.trained_options.append(untrained_option)
-                        if untrained_option not in self.mdp.actions:
-                            self.mdp.actions.append(untrained_option)
+                state = next_state
 
-                        # Create new option whose termination is the initiation of the option we just trained
-                        name = "option_{}".format(str(len(self.trained_options)))
-
-                        print("Creating {}".format(name))
-
-                        # Using the global init_state as the init_state for all child options
-                        untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
-                                                                                actions=self.original_actions,
-                                                                                new_option_name=name,
-                                                                                default_q=max_qvalue)
-
-                    # Reset the agent so that we don't keep moving around the initiation set of the trained option
+                # Reset the agent so that we don't keep moving around the initiation set of the trained option
+                if reset_agent:
                     break
+
 
 def construct_pendulum_domain():
     # Overall goal predicate in the Pendulum domain
