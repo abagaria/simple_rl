@@ -14,6 +14,7 @@ from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.AgentClass import Agent
 from simple_rl.agents import QLearningAgent
 from simple_rl.tasks import GymMDP, GridWorldMDP
+from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent=None, buffer_length=40, subgoal_reward=1., subgoal_hits=10):
@@ -82,7 +83,7 @@ class SkillChaining(object):
             trained_options = self.trained_options
         return trained_options
 
-    def skill_chaining(self, num_episodes=200, num_steps=1000):
+    def skill_chaining(self, num_episodes=50, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -90,7 +91,7 @@ class SkillChaining(object):
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
-        # 2. This option has an untrained initialization set, which we need to train from experience
+        # 2. This option has an untrained initialization set and policy, which we need to train from experience
         untrained_option = goal_option
 
         for episode in range(num_episodes):
@@ -122,12 +123,12 @@ class SkillChaining(object):
                     print("Entered the goal state for option {}.".format(untrained_option))
 
                     # If we hit a subgoal, modify the last experience to reflect the augmented reward
-                    if untrained_option.name != goal_option:
+                    if untrained_option != goal_option:
                         experience_buffer[-1] = (state, action, reward + self.subgoal_reward, next_state)
 
                     untrained_option.num_goal_hits += 1
-                    untrained_option.initiation_data.append(state_buffer)
-                    untrained_option.experience_buffer.append(experience_buffer)
+                    untrained_option.add_initiation_experience(state_buffer)
+                    untrained_option.add_experience_buffer(experience_buffer)
 
                     if untrained_option.num_goal_hits >= self.num_goal_hits_before_training:
                         untrained_option = self._train_untrained_option(untrained_option)
@@ -140,7 +141,9 @@ class SkillChaining(object):
                 state = next_state
 
                 # Reset the agent so that we don't keep moving around the initiation set of the trained option
-                if reset_agent:
+                # TODO: Won't have to use reset_agent to break if I always take an option when I enter its initiation set
+                # TODO: But what if that state has 2 options you can take from it?
+                if reset_agent or state.is_out_of_frame() or state.is_terminal():
                     break
 
 
@@ -160,7 +163,16 @@ def construct_grid_world_mdp():
     predicate = Predicate(func=lambda s: s.x == 10 and s.y == 10, name='OverallOption_GoalPredicate')
     return GridWorldMDP(10, 10, goal_predicate=predicate, slip_prob=0.2)
 
+def contruct_lunar_lander_mdp():
+    predicate = LunarLanderMDP.default_goal_predicate()
+    return LunarLanderMDP(goal_predicate=predicate, render=True)
+
+def construct_positional_lunar_lander_mdp():
+    from simple_rl.tasks.lunar_lander.PositionalLunarLanderMDPClass import PositionalLunarLanderMDP
+    predicate = PositionalLunarLanderMDP.default_goal_predicate()
+    return PositionalLunarLanderMDP(goal_predicate=predicate, render=True)
+
 if __name__ == '__main__':
-    overall_mdp = construct_grid_world_mdp()
+    overall_mdp = construct_positional_lunar_lander_mdp()
     chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate)
     chainer.skill_chaining()

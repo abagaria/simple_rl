@@ -1,6 +1,7 @@
 # Python imports.
 from __future__ import print_function
 from collections import defaultdict, deque
+import matplotlib.pyplot as plt
 import random
 from sklearn import svm
 import numpy as np
@@ -12,6 +13,29 @@ from simple_rl.mdp.StateClass import State
 from simple_rl.agents.QLearningAgentClass import QLearningAgent
 from simple_rl.tasks.grid_world.GridWorldMDPClass import GridWorldMDP
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
+from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
+
+class Experience(object):
+	def __init__(self, s, a, r, s_prime):
+		self.state = s
+		self.action = a
+		self.reward = r
+		self.next_state = s_prime
+
+	def serialize(self):
+		return self.state, self.action, self.reward, self.next_state
+
+	def __str__(self):
+		return "s: {}, a: {}, r: {}, s': {}".format(self.state, self.action, self.reward, self.next_state)
+
+	def __repr__(self):
+		return str(self)
+
+	def __eq__(self, other):
+		return isinstance(other, Experience) and self.__dict__ == other.__dict__
+
+	def __ne__(self, other):
+		return not self == other
 
 class Option(object):
 
@@ -51,12 +75,12 @@ class Option(object):
 		self.initiation_classifier = svm.SVC(kernel="rbf")
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
-		self.initiation_data = []
-		self.experience_buffer = []
+		buffer_length = 40
+		self.initiation_data = np.empty((buffer_length, 10), dtype=State)
+		self.experience_buffer = np.empty((buffer_length, 10), dtype=Experience)
 		self.new_experience_buffer = deque([], maxlen=50)
 
 		self.overall_mdp = overall_mdp
-		self.subgoal_mdp = self._create_subgoal_mdp()
 		self.num_goal_hits = 0
 		self.num_experiences_since_training = 0
 		self.train_every = train_every_n_new_experiences
@@ -73,7 +97,7 @@ class Option(object):
 	def __eq__(self, other):
 		if not isinstance(other, Option):
 			return False
-		return self.get_termination_set() == other.get_termination_set()
+		return str(self) == str(other)
 
 	def __ne__(self, other):
 		return not self == other
@@ -97,8 +121,29 @@ class Option(object):
 	def _create_subgoal_mdp(self):
 		return GridWorldMDP(10, 10, goal_predicate=self.term_predicate, init_state=self.init_state)
 
+	def add_initiation_experience(self, states_queue):
+		"""
+		SkillChaining class will give us a queue of states that correspond to its most recently successful experience.
+		Args:
+			states_queue (deque)
+		"""
+		assert type(states_queue) == deque, "Expected initiation experience sample to be a queue"
+		states = list(states_queue)
+		self.initiation_data[:, self.num_goal_hits-1] = np.asarray(states)
+
+	def add_experience_buffer(self, experience_queue):
+		"""
+		Skill chaining class will give us a queue of (sars') tuples that correspond to its most recently successful experience.
+		Args:
+			experience_queue (deque)
+		"""
+		assert type(experience_queue) == deque, "Expected initiation experience sample to be a queue"
+		experiences = [Experience(*exp) for exp in experience_queue]
+		self.experience_buffer[:, self.num_goal_hits-1] = np.asarray(experiences)
+
 	@staticmethod
-	def _construct_feature_matrix(states):
+	def _construct_feature_matrix(examples_matrix):
+		states = examples_matrix.reshape(-1)
 		n_samples = len(states)
 		n_features = states[0].get_num_feats()
 		X = np.zeros((n_samples, n_features))
@@ -106,50 +151,40 @@ class Option(object):
 			X[row, :] = states[row].features()
 		return X
 
-	@staticmethod
-	def _split_experience_into_pos_neg_examples(examples):
-
-		# Fraction of the states in the experience buffer are treated as positive examples
-		r = 0.5
-		last_index = len(examples) - int(r * len(examples))
-		first_index = int(r * len(examples))
-
-		positive_examples = [examples[-i] for i in range(first_index)]
-		negative_examples = [examples[i] for i in range(last_index)]
-
-		return positive_examples, negative_examples
-
-	@staticmethod
-	def _combine_buffers(buffers):
-		overall_size = sum([b.maxlen for b in buffers])
-		buffer_list = [list(b) for b in buffers]
-		flatten = lambda l: [item for sublist in l for item in sublist]
-		return deque(flatten(buffer_list), maxlen=overall_size)
+	def _split_experience_into_pos_neg_examples(self):
+		negative_experiences = self.initiation_data[:25, :] # 1st 25 states are negative examples
+		positive_experiences = self.initiation_data[25:, :] # Last 15 states are positive examples
+		return positive_experiences, negative_experiences
 
 	# TODO: Test this classifier
 	def train_initiation_classifier(self):
-		initiation_data = self._combine_buffers(self.initiation_data)
-		positive_examples, negative_examples = self._split_experience_into_pos_neg_examples(initiation_data)
-		X = self._construct_feature_matrix(positive_examples + negative_examples)
-		Y = np.array(([1] * len(positive_examples)) + ([0] * len(negative_examples)))
+		positive_examples, negative_examples = self._split_experience_into_pos_neg_examples()
+		positive_feature_matrix = self._construct_feature_matrix(positive_examples)
+		negative_feature_matrix = self._construct_feature_matrix(negative_examples)
+		positive_labels = [1] * positive_feature_matrix.shape[0]
+		negative_labels = [0] * negative_feature_matrix.shape[0]
+		X = np.concatenate((positive_feature_matrix, negative_feature_matrix))
+		Y = np.concatenate((positive_labels, negative_labels))
 
 		self.initiation_classifier.fit(X, Y)
-		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s])[0], name=self.name+'_init_predicate')
+		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0], name=self.name+'_init_predicate')
 
-	# TODO: Rewrite the Q function in here so that we dont have to retrain pi from scratch.
 	def learn_policy_from_experience(self, alpha=0.3, use_new_experiences=False):
-		
+
 		if use_new_experiences:
 			experience_buffer = self.new_experience_buffer
 		else:
-			experience_buffer = self._combine_buffers(self.experience_buffer)
+			experience_buffer = self.experience_buffer.reshape(-1)
 
 		Q = self.solver.q_func
 		for _ in range(50):
 			for experience in experience_buffer:
-				s, a, r, s_prime = experience
-				max_q_prime = max([Q[s_prime][a_prime] for a_prime in self.subgoal_mdp.actions])
-				Q[s][a] = (1. - alpha) * Q[s][a] + alpha * (r + self.subgoal_mdp.gamma * max_q_prime)
+				if isinstance(experience_buffer, tuple):
+					s, a, r, s_prime = experience
+				else:
+					s, a, r, s_prime = experience.serialize()
+				max_q_prime = max([Q[s_prime][a_prime] for a_prime in self.overall_mdp.actions])
+				Q[s][a] = (1. - alpha) * Q[s][a] + alpha * (r + self.overall_mdp.gamma * max_q_prime)
 				self.policy_dict[s] = max(Q[s], key=Q[s].get)
 		self.solver.q_func = Q
 
@@ -178,12 +213,7 @@ class Option(object):
 				self.learn_policy_from_experience(use_new_experiences=True)
 
 	def create_child_option(self, init_state, actions, new_option_name, default_q=0.):
-		# TODO: Akhil: Bad Hack for dev
-		# goal_state = sorted(self.get_initiation_set(), key=lambda s:s.x+s.y)[0]
-		goal_state = random.choice(self.get_initiation_set())
-		print("creating new option with termination set: {}".format(goal_state))
-		term_pred = Predicate(func=lambda s: s == goal_state,
-							  name=new_option_name + '_term_predicate_goal_state_{}'.format(goal_state))
+		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
 		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
 								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
 								  default_q=default_q)
@@ -250,15 +280,24 @@ class Option(object):
 	# Debug methods
 	# --------------------------------------
 	def get_initiation_set(self):
-		initiation = []
-		for state in self.overall_mdp.get_states():
-			if self.init_predicate.is_true(state):
-				initiation.append(state)
-		return initiation
+		state_space = self.overall_mdp.get_discretized_positional_state_space()
+		return [(state.x, state.y) for state in state_space if self.is_init_true(state)]
 
-	def get_termination_set(self):
-		terminal = []
-		for state in self.overall_mdp.get_states():
-			if self.term_predicate.is_true(state):
-				terminal.append(state)
-		return terminal
+	@staticmethod
+	def plot_x_y_points_on_image(x_grid, y_grid, image_path="/Users/akhil/Desktop/LunarLanderImage.png"):
+		plt.figure()
+		im = plt.imread(image_path)
+		_ = plt.imshow(im)
+		x_image, y_image = Option.pos_array_to_image_array(x_grid, y_grid)
+		plt.plot(x_image, y_image, marker='.', color='r', linestyle='none')
+		plt.show()
+
+	@staticmethod
+	def pos_array_to_image_array(x_grid, y_grid):
+		x_scale = lambda x: 600 * (x + 1)
+		y_scale = lambda y: 800 * y
+		x_func = np.vectorize(x_scale)
+		y_func = np.vectorize(y_scale)
+		x_image = x_func(x_grid)
+		y_image = y_func(y_grid)
+		return x_image, y_image
