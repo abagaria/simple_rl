@@ -24,8 +24,8 @@ class Hyperparameters(object):
     EPS_START = 0.99
     EPS_END = 0.33
     EPS_DECAY = 10000
-    TARGET_UPDATE = 10 #50
-    NUM_EPISODES = 100 #500
+    TARGET_UPDATE = 50
+    NUM_EPISODES = 500
 
 class ReplayBuffer(object):
     def __init__(self, capacity):
@@ -77,7 +77,7 @@ class DQN(nn.Module):
         logits = self.fc(x.view(x.size(0), -1))
         return logits
 
-    def select_action(self, state):
+    def policy(self, state):
         epsilon_threshold = Hyperparameters.EPS_END + (Hyperparameters.EPS_START - Hyperparameters.EPS_END) * \
                             math.exp(-1. * self.steps_done / Hyperparameters.EPS_DECAY)
         self.steps_done += 1
@@ -134,7 +134,7 @@ def train(mdp, policy_network, target_network, optimizer, replay_buffer, device,
         current_screen = mdp.get_screen(device)
         state = current_screen - last_screen
         for step in count():
-            action = policy_network.select_action(state)
+            action = policy_network.policy(state)
             _, reward, done, _ = mdp.env.step(action.item())
             reward = torch.tensor([reward], device=device)
 
@@ -188,7 +188,7 @@ def run_trained_network(mdp, policy_network, device, num_episodes):
         state = current_screen - last_screen
         for step in count():
             with torch.no_grad():
-                action = policy_network.select_action(state)
+                action = policy_network.policy(state)
             _, reward, done, _ = mdp.env.step(action.item())
             cumulative_reward += reward
 
