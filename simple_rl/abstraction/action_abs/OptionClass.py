@@ -10,7 +10,7 @@ import pdb
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
-from simple_rl.agents.QLearningAgentClass import QLearningAgent
+from simple_rl.agents import QLearningAgent, LinearQAgent
 from simple_rl.tasks.grid_world.GridWorldMDPClass import GridWorldMDP
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
@@ -71,7 +71,9 @@ class Option(object):
 		else:
 			self.policy = policy
 
-		self.solver = QLearningAgent(actions, name=self.name+'_option_q_solver', default_q=default_q)
+		# self.solver = QLearningAgent(actions, name=self.name+'_option_q_solver', default_q=default_q)
+		self.solver = LinearQAgent(actions, num_features=init_state.get_num_feats(),
+								   name=self.name+'_option_q_solver', rbf=True)
 		self.initiation_classifier = svm.SVC(kernel="rbf")
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
@@ -169,6 +171,7 @@ class Option(object):
 		self.initiation_classifier.fit(X, Y)
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0], name=self.name+'_init_predicate')
 
+	# TODO: Swap out Q-Learning Agent with Function Approximating agent to deal with continuous state space
 	def learn_policy_from_experience(self, alpha=0.3, use_new_experiences=False):
 
 		if use_new_experiences:

@@ -12,7 +12,7 @@ from copy import deepcopy
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.AgentClass import Agent
-from simple_rl.agents import QLearningAgent
+from simple_rl.agents import QLearningAgent, LinearQAgent
 from simple_rl.tasks import GymMDP, GridWorldMDP
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 
@@ -170,9 +170,11 @@ def contruct_lunar_lander_mdp():
 def construct_positional_lunar_lander_mdp():
     from simple_rl.tasks.lunar_lander.PositionalLunarLanderMDPClass import PositionalLunarLanderMDP
     predicate = PositionalLunarLanderMDP.default_goal_predicate()
-    return PositionalLunarLanderMDP(goal_predicate=predicate, render=True)
+    return PositionalLunarLanderMDP(goal_predicate=predicate, render=False)
 
 if __name__ == '__main__':
     overall_mdp = construct_positional_lunar_lander_mdp()
-    chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate)
+    solver = LinearQAgent(actions=overall_mdp.actions, num_features=overall_mdp.init_state.get_num_feats(),
+                          name="Global-Linear-Q-Solver", rbf=True)
+    chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
     chainer.skill_chaining()
