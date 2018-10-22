@@ -6,6 +6,7 @@ from itertools import count
 import argparse
 import os
 import numpy as np
+import pdb
 
 # PyTorch imports.
 import torch
@@ -102,6 +103,8 @@ def optimize_model(policy_network, target_network, optimizer, replay_buffer, dev
     state_batch = torch.cat(batch.state)
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
+
+    pdb.set_trace()
 
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken
