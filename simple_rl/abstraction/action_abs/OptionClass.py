@@ -67,7 +67,7 @@ class Option(object):
 		else:
 			self.policy = policy
 
-		# self.solver = QLearningAgent(actions, name=self.name+'_option_q_solver', default_q=default_q)
+		# TODO: Initialize the option's DQN with the weights of the global DQN solver
 		self.solver = DQNAgent(overall_mdp.env.observation_space.shape[0], overall_mdp.env.action_space.n, 0, name=name)
 		self.initiation_classifier = svm.SVC(kernel="rbf")
 
@@ -112,6 +112,7 @@ class Option(object):
 	def set_name(self, new_name):
 		self.name = new_name
 
+	# TODO: To simplify the problem, train the initiation set classifier on the position only
 	def add_initiation_experience(self, states_queue):
 		"""
 		SkillChaining class will give us a queue of states that correspond to its most recently successful experience.
@@ -160,6 +161,7 @@ class Option(object):
 		self.initiation_classifier.fit(X, Y)
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0], name=self.name+'_init_predicate')
 
+	# TODO: Matt says that he only trained this DQN with points that were used as positive examples for the init classifier
 	def learn_policy_from_experience(self):
 		experience_buffer = self.experience_buffer.reshape(-1)
 		for _ in range(50):
@@ -245,6 +247,7 @@ class Option(object):
 			reward, state = mdp.execute_agent_action(action)
 			while self.is_init_true(state) and not self.is_term_true(state) and \
 					not state.is_terminal() and not state.is_out_of_frame():
+				# TODO: Call DQN::update() every time the option is used
 				action = self.solver.act(state.features(), eps=0.)
 				r, state = mdp.execute_agent_action(action)
 				reward += r
