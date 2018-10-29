@@ -5,15 +5,13 @@ import matplotlib.pyplot as plt
 import random
 from sklearn import svm
 import numpy as np
-from copy import deepcopy
 import pdb
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
-from simple_rl.agents import QLearningAgent, LinearQAgent
+from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.tasks.grid_world.GridWorldMDPClass import GridWorldMDP
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
-from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -40,7 +38,7 @@ class Experience(object):
 class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
-				 term_prob=0.01, default_q=0., train_every_n_new_experiences=5000):
+				 term_prob=0.01, default_q=0.):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -52,8 +50,6 @@ class Option(object):
 			name (str)
 			term_prob (float)
 			default_q (float)
-            train_every_n_new_experiences (int): After initial training of an option, if you see
-            >= `train_every_n_new_experiences`, then update the policy for that option
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -72,8 +68,7 @@ class Option(object):
 			self.policy = policy
 
 		# self.solver = QLearningAgent(actions, name=self.name+'_option_q_solver', default_q=default_q)
-		self.solver = LinearQAgent(actions, num_features=init_state.get_num_feats(),
-								   name=self.name+'_option_q_solver', rbf=True)
+		self.solver = DQNAgent(overall_mdp.env.observation_space.shape[0], overall_mdp.env.action_space.n, 0, name=name)
 		self.initiation_classifier = svm.SVC(kernel="rbf")
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
@@ -84,8 +79,6 @@ class Option(object):
 
 		self.overall_mdp = overall_mdp
 		self.num_goal_hits = 0
-		self.num_experiences_since_training = 0
-		self.train_every = train_every_n_new_experiences
 
 	def __str__(self):
 		return self.name
@@ -118,10 +111,6 @@ class Option(object):
 
 	def set_name(self, new_name):
 		self.name = new_name
-
-	# TODO: Akhil: Check the init_state to make sure that mdp.execute_agent_action() is in sync with agent.act()
-	def _create_subgoal_mdp(self):
-		return GridWorldMDP(10, 10, goal_predicate=self.term_predicate, init_state=self.init_state)
 
 	def add_initiation_experience(self, states_queue):
 		"""
@@ -171,25 +160,19 @@ class Option(object):
 		self.initiation_classifier.fit(X, Y)
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0], name=self.name+'_init_predicate')
 
-	# TODO: Swap out Q-Learning Agent with Function Approximating agent to deal with continuous state space
-	def learn_policy_from_experience(self, alpha=0.3, use_new_experiences=False):
-
-		if use_new_experiences:
-			experience_buffer = self.new_experience_buffer
-		else:
-			experience_buffer = self.experience_buffer.reshape(-1)
-
-		Q = self.solver.q_func
+	def learn_policy_from_experience(self):
+		experience_buffer = self.experience_buffer.reshape(-1)
 		for _ in range(50):
 			for experience in experience_buffer:
-				if isinstance(experience_buffer, tuple):
-					s, a, r, s_prime = experience
-				else:
-					s, a, r, s_prime = experience.serialize()
-				max_q_prime = max([Q[s_prime][a_prime] for a_prime in self.overall_mdp.actions])
-				Q[s][a] = (1. - alpha) * Q[s][a] + alpha * (r + self.overall_mdp.gamma * max_q_prime)
-				self.policy_dict[s] = max(Q[s], key=Q[s].get)
-		self.solver.q_func = Q
+				state, a, r, s_prime = experience.serialize()
+				self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
+
+	def _learn_policy_from_new_experiences(self):
+		experience_buffer = self.new_experience_buffer
+		for _ in range(50):
+			for experience in experience_buffer:
+				state, a, r, s_prime = experience
+				self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
 
 	def expand_experience_buffer(self, experience):
 		"""
@@ -211,9 +194,7 @@ class Option(object):
 		state, action, reward, next_state = experience
 		if self.is_init_true(next_state):
 			self.expand_experience_buffer(experience)
-			self.num_experiences_since_training += 1
-			if self.num_experiences_since_training % self.train_every == 0:
-				self.learn_policy_from_experience(use_new_experiences=True)
+			self._learn_policy_from_new_experiences()
 
 	def create_child_option(self, init_state, actions, new_option_name, default_q=0.):
 		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
@@ -257,14 +238,20 @@ class Option(object):
 
 		return cur_state, total_reward
 
-	def execute_option_in_mdp(self, state, mdp, verbose=False):
+	def execute_option_in_mdp(self, state, mdp):
 		if self.is_init_true(state):
-			if verbose: print("From state {}, taking option {}".format(state, self.name))
-			reward, state = mdp.execute_agent_action(self.act(state))
-			while not self.is_term_true(state):
-				if verbose: print("from state {}, taking action {}".format(state, self.act(state)))
-				r, state = mdp.execute_agent_action(self.act(state))
+			# We only execute an option in an MDP if the option is already trained, in which case we can do eps=0
+			action = self.solver.act(state.features(), eps=0.)
+			reward, state = mdp.execute_agent_action(action)
+			while self.is_init_true(state) and not self.is_term_true(state) and \
+					not state.is_terminal() and not state.is_out_of_frame():
+				action = self.solver.act(state.features(), eps=0.)
+				r, state = mdp.execute_agent_action(action)
 				reward += r
+			else:
+				print("  Finished executing {}. is_init_true={},  is_term_true={},  is_terminal={}".format(
+					self, self.is_init_true(state), self.is_term_true(state), state.is_terminal()
+				))
 			return reward, state
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 

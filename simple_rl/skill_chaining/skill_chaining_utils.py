@@ -1,5 +1,6 @@
 # Python imports.
 import matplotlib.pyplot as plt
+import numpy as np
 
 def plot_trajectory(trajectory, show=True, color='k'):
     """
@@ -27,3 +28,7 @@ def plot_all_trajectories_in_initiation_data(initiation_data):
         trajectory = initiation_data[:, i]
         plot_trajectory(trajectory, show=False, color=possible_colors[i])
     plt.show()
+
+def plot_initiation_set(option):
+    X0, X1 = np.array(option.initiation_examples)[:, 0], np.array(option.initiation_examples)[:, 1]
+

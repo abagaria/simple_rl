@@ -11,18 +11,17 @@ from copy import deepcopy
 # Other imports.
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.abstraction.action_abs.OptionClass import Option
-from simple_rl.agents.AgentClass import Agent
-from simple_rl.agents import QLearningAgent, LinearQAgent
+from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.tasks import GymMDP, GridWorldMDP
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent=None, buffer_length=40, subgoal_reward=1., subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=1., subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
             overall_goal_predicate (Predicate)
-            rl_agent (Agent): RL agent used to determine the policy for each option
+            rl_agent (DQNAgent): RL agent used to determine the policy for each option
             buffer_length (int): size of the circular buffer used as experience buffer
             subgoal_reward (float): Hitting a subgoal must yield a supplementary reward to enable local policy
             subgoal_hits (int): number of times the RL agent has to hit the goal of an option o to learn its I_o, Beta_o
@@ -30,7 +29,7 @@ class SkillChaining(object):
         self.mdp = mdp
         self.original_actions = deepcopy(mdp.actions)
         self.overall_goal_predicate = overall_goal_predicate
-        self.global_solver = rl_agent if rl_agent is not None else QLearningAgent(mdp.get_actions(), name="GlobalSolver")
+        self.global_solver = rl_agent
         self.buffer_length = buffer_length
         self.subgoal_reward = subgoal_reward
         self.num_goal_hits_before_training = subgoal_hits
@@ -76,14 +75,16 @@ class SkillChaining(object):
         return new_untrained_option
 
     def _get_trained_options(self, new_option_just_created):
+        # If we have just added a new option to the list and its the only trained one, return empty list
         trained_options = []
         if new_option_just_created and len(self.trained_options) > 1:
+            # If we have just added a new option to the list, get all options but the newest one
             trained_options = self.trained_options[:-2]
         elif not new_option_just_created:
             trained_options = self.trained_options
         return trained_options
 
-    def skill_chaining(self, num_episodes=50, num_steps=1000):
+    def skill_chaining(self, num_episodes=70, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -94,34 +95,29 @@ class SkillChaining(object):
         # 2. This option has an untrained initialization set and policy, which we need to train from experience
         untrained_option = goal_option
 
+        # For logging purposes
+        per_episode_scores = []
+        last_100_scores = deque(maxlen=100)
+
         for episode in range(num_episodes):
 
-            print('-------------')
-            print('Episode = {}'.format(episode))
-            print('-------------')
             self.mdp.reset()
-            reset_agent = False
+            reward, score, reset_agent = 0, 0, False
             state = deepcopy(self.mdp.init_state)
-            reward = 0
             experience_buffer = deque([], maxlen=self.buffer_length)
             state_buffer = deque([], maxlen=self.buffer_length)
 
             for step in range(num_steps):
-                action = self.global_solver.act(state, reward)
-
-                # if isinstance(action, Option):
-                #     print "\n\nWatchOut: global solver is using option {}\n\n".format(action.name)
-                #     reward, next_state = action.execute_option_in_mdp(state, self.mdp, verbose=True)
-                # else: # Primitive action
+                action = self.global_solver.act(state.features(), reward)
                 reward, next_state = self.mdp.execute_agent_action(action)
+                self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
                 experience = state, action, reward, next_state
                 experience_buffer.append(experience)
                 state_buffer.append(state)
+                score += reward
 
                 if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length:
-                    print("Entered the goal state for option {}.".format(untrained_option))
-
                     # If we hit a subgoal, modify the last experience to reflect the augmented reward
                     if untrained_option != goal_option:
                         experience_buffer[-1] = (state, action, reward + self.subgoal_reward, next_state)
@@ -135,8 +131,15 @@ class SkillChaining(object):
 
                     reset_agent = True
 
-                for trained_option in self._get_trained_options(new_option_just_created=reset_agent): # type: Option
+                for trained_option in self.trained_options: # type: Option
                     trained_option.maybe_update_policy(experience)
+
+                # If s' is in the initiation set of ANY trained option, execute the option
+                for trained_option in self.trained_options:  # type: Option
+                    if trained_option.is_init_true(next_state):
+                        print("Taking option {} from state {}\n".format(trained_option.name, next_state))
+                        reward, next_state = trained_option.execute_option_in_mdp(next_state, self.mdp)
+                        break
 
                 state = next_state
 
@@ -145,6 +148,14 @@ class SkillChaining(object):
                 # TODO: But what if that state has 2 options you can take from it?
                 if reset_agent or state.is_out_of_frame() or state.is_terminal():
                     break
+
+            last_100_scores.append(score)
+            per_episode_scores.append(score)
+            # print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)), end="")
+            if episode % 100 == 0:
+                print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
+
+        return per_episode_scores
 
 
 def construct_pendulum_domain():
@@ -173,8 +184,8 @@ def construct_positional_lunar_lander_mdp():
     return PositionalLunarLanderMDP(goal_predicate=predicate, render=False)
 
 if __name__ == '__main__':
-    overall_mdp = construct_positional_lunar_lander_mdp()
-    solver = LinearQAgent(actions=overall_mdp.actions, num_features=overall_mdp.init_state.get_num_feats(),
-                          name="Global-Linear-Q-Solver", rbf=True)
+    overall_mdp = contruct_lunar_lander_mdp()
+    environment = overall_mdp.env
+    solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
     chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
     chainer.skill_chaining()
