@@ -51,3 +51,13 @@ def visualize_option_policy(option):
     plt.show()
     return x_positions, y_positions, actions
 
+# Perform forward passes through the given DQN model
+# so that we can visually see how it is performing
+def render_dqn_policy(env, dqn_model):
+    for i in range(3):
+        state = env.reset()
+        for j in range(750):
+            action = dqn_model.act(state)
+            env.render()
+            state, reward, done, _ = env.step(action)
+            if done: break

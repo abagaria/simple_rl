@@ -16,7 +16,7 @@ from simple_rl.tasks import GymMDP, GridWorldMDP
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=1., subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=0.3, subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -78,12 +78,12 @@ class SkillChaining(object):
         # If s' is in the initiation set of ANY trained option, execute the option
         for trained_option in self.trained_options:  # type: Option
             if trained_option.is_init_true(state):
-                print("Taking option {} from state {}\n".format(trained_option.name, state))
+                # print("Taking option {} from state {}\n".format(trained_option.name, state))
                 reward, next_state = trained_option.execute_option_in_mdp(state, self.mdp)
                 return reward, next_state
         return 0., state
 
-    def skill_chaining(self, num_episodes=70, num_steps=1000):
+    def skill_chaining(self, num_episodes=1500, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -116,7 +116,7 @@ class SkillChaining(object):
                 state_buffer.append(state)
                 score += reward
 
-                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and episode < 35:
+                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and episode < 100:
                     # If we hit a subgoal, modify the last experience to reflect the augmented reward
                     if untrained_option != goal_option:
                         experience_buffer[-1] = (state, action, reward + self.subgoal_reward, next_state)
@@ -146,7 +146,7 @@ class SkillChaining(object):
 
             last_100_scores.append(score)
             per_episode_scores.append(score)
-            # print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)), end="")
+            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)), end="")
             if episode % 100 == 0:
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
 
@@ -171,7 +171,7 @@ def construct_grid_world_mdp():
 
 def contruct_lunar_lander_mdp():
     predicate = LunarLanderMDP.default_goal_predicate()
-    return LunarLanderMDP(goal_predicate=predicate, render=True)
+    return LunarLanderMDP(goal_predicate=predicate, render=False)
 
 def construct_positional_lunar_lander_mdp():
     from simple_rl.tasks.lunar_lander.PositionalLunarLanderMDPClass import PositionalLunarLanderMDP
