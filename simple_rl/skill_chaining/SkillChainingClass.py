@@ -74,15 +74,14 @@ class SkillChaining(object):
                                                                 default_q=max_qvalue)
         return new_untrained_option
 
-    def _get_trained_options(self, new_option_just_created):
-        # If we have just added a new option to the list and its the only trained one, return empty list
-        trained_options = []
-        if new_option_just_created and len(self.trained_options) > 1:
-            # If we have just added a new option to the list, get all options but the newest one
-            trained_options = self.trained_options[:-2]
-        elif not new_option_just_created:
-            trained_options = self.trained_options
-        return trained_options
+    def execute_trained_option_if_possible(self, state):
+        # If s' is in the initiation set of ANY trained option, execute the option
+        for trained_option in self.trained_options:  # type: Option
+            if trained_option.is_init_true(state):
+                print("Taking option {} from state {}\n".format(trained_option.name, state))
+                reward, next_state = trained_option.execute_option_in_mdp(state, self.mdp)
+                return reward, next_state
+        return 0., state
 
     def skill_chaining(self, num_episodes=70, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
@@ -107,7 +106,7 @@ class SkillChaining(object):
             experience_buffer = deque([], maxlen=self.buffer_length)
             state_buffer = deque([], maxlen=self.buffer_length)
 
-            for step in range(num_steps):
+            for _ in range(num_steps):
                 action = self.global_solver.act(state.features(), reward)
                 reward, next_state = self.mdp.execute_agent_action(action)
                 self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
@@ -134,13 +133,9 @@ class SkillChaining(object):
                 for trained_option in self.trained_options: # type: Option
                     trained_option.maybe_update_policy(experience)
 
-                # If s' is in the initiation set of ANY trained option, execute the option
-                for trained_option in self.trained_options:  # type: Option
-                    if trained_option.is_init_true(next_state):
-                        print("Taking option {} from state {}\n".format(trained_option.name, next_state))
-                        reward, next_state = trained_option.execute_option_in_mdp(next_state, self.mdp)
-                        break
+                option_reward, next_state = self.execute_trained_option_if_possible(next_state)
 
+                score += option_reward
                 state = next_state
 
                 # Reset the agent so that we don't keep moving around the initiation set of the trained option
