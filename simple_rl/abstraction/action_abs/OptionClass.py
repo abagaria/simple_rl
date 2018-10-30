@@ -122,7 +122,6 @@ class Option(object):
 	def set_name(self, new_name):
 		self.name = new_name
 
-	# TODO: To simplify the problem, train the initiation set classifier on the position only
 	def add_initiation_experience(self, states_queue):
 		"""
 		SkillChaining class will give us a queue of states that correspond to its most recently successful experience.
