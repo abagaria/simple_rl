@@ -247,14 +247,12 @@ class Option(object):
 			reward, state = mdp.execute_agent_action(action)
 			while self.is_init_true(state) and not self.is_term_true(state) and \
 					not state.is_terminal() and not state.is_out_of_frame():
-				# TODO: Call DQN::update() every time the option is used
+				# update the DQN every time the option is used
 				action = self.solver.act(state.features(), eps=0.)
-				r, state = mdp.execute_agent_action(action)
+				r, next_state = mdp.execute_agent_action(action)
+				self.solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
 				reward += r
-			# else:
-			# 	print("  Finished executing {}. is_init_true={},  is_term_true={},  is_terminal={}".format(
-			# 		self, self.is_init_true(state), self.is_term_true(state), state.is_terminal()
-			# 	))
+				state = next_state
 			return reward, state
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 
