@@ -11,6 +11,8 @@ import pdb
 from simple_rl.mdp.StateClass import State
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
+from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
+from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -67,7 +69,6 @@ class Option(object):
 		else:
 			self.policy = policy
 
-		# TODO: Initialize the option's DQN with the weights of the global DQN solver
 		self.solver = DQNAgent(overall_mdp.env.observation_space.shape[0], overall_mdp.env.action_space.n, 0, name=name)
 		if global_solver:
 			self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
@@ -101,9 +102,15 @@ class Option(object):
 		return not self == other
 
 	def is_init_true(self, ground_state):
+		if isinstance(ground_state, LunarLanderState):
+			positional_state = PositionalLunarLanderState(ground_state.x, ground_state.y, ground_state.is_terminal())
+			return self.init_predicate.is_true(positional_state)
 		return self.init_predicate.is_true(ground_state)
 
 	def is_term_true(self, ground_state):
+		if isinstance(ground_state, LunarLanderState):
+			positional_state = PositionalLunarLanderState(ground_state.x, ground_state.y, ground_state.is_terminal())
+			return self.term_predicate.is_true(positional_state)
 		return self.term_predicate.is_true(ground_state) # or self.term_flag or self.term_prob > random.random()
 
 	def act(self, ground_state):
@@ -124,7 +131,10 @@ class Option(object):
 		"""
 		assert type(states_queue) == deque, "Expected initiation experience sample to be a queue"
 		states = list(states_queue)
-		self.initiation_data[:, self.num_goal_hits-1] = np.asarray(states)
+
+		# Convert the high dimensional states to positional states for ease of learning the initiation classifier
+		positional_states = [PositionalLunarLanderState(state.x, state.y, state.is_terminal()) for state in states]
+		self.initiation_data[:, self.num_goal_hits-1] = np.asarray(positional_states)
 
 	def add_experience_buffer(self, experience_queue):
 		"""
