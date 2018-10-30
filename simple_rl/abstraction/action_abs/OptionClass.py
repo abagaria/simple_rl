@@ -10,7 +10,6 @@ import pdb
 # Other imports.
 from simple_rl.mdp.StateClass import State
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
-from simple_rl.tasks.grid_world.GridWorldMDPClass import GridWorldMDP
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 
 class Experience(object):
@@ -38,7 +37,7 @@ class Experience(object):
 class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
-				 term_prob=0.01, default_q=0.):
+				 term_prob=0.01, default_q=0., global_solver=None):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -50,6 +49,7 @@ class Option(object):
 			name (str)
 			term_prob (float)
 			default_q (float)
+			global_solver (DQNAgent)
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -69,6 +69,9 @@ class Option(object):
 
 		# TODO: Initialize the option's DQN with the weights of the global DQN solver
 		self.solver = DQNAgent(overall_mdp.env.observation_space.shape[0], overall_mdp.env.action_space.n, 0, name=name)
+		if global_solver:
+			self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
+
 		self.initiation_classifier = svm.SVC(kernel="rbf")
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
@@ -198,11 +201,11 @@ class Option(object):
 			self.expand_experience_buffer(experience)
 			self._learn_policy_from_new_experiences()
 
-	def create_child_option(self, init_state, actions, new_option_name, default_q=0.):
+	def create_child_option(self, init_state, actions, new_option_name, default_q=0., global_solver=None):
 		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
 		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
 								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
-								  default_q=default_q)
+								  default_q=default_q, global_solver=global_solver)
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):

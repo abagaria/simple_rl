@@ -71,7 +71,8 @@ class SkillChaining(object):
         new_untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
                                                                 actions=self.original_actions,
                                                                 new_option_name=name,
-                                                                default_q=max_qvalue)
+                                                                default_q=max_qvalue,
+                                                                global_solver=self.global_solver)
         return new_untrained_option
 
     def execute_trained_option_if_possible(self, state):
@@ -87,7 +88,7 @@ class SkillChaining(object):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
-                             name='overall_goal_policy', term_prob=0.)
+                             name='overall_goal_policy', term_prob=0., global_solver=self.global_solver)
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
