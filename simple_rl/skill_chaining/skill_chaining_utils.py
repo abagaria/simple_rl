@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Other imports.
-from simple_rl.abstraction.action_abs.OptionClass import Experience
+
 
 def plot_trajectory(trajectory, show=True, color='k'):
     """
@@ -65,7 +65,8 @@ def plot_initiation_set(option):
     xx, yy = make_meshgrid(X0, X1)
     plot_contours(sub, trained_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
     plt.scatter(X0, X1, c=Y, cmap=plt.cm.coolwarm, s=20, edgecolors='k')
-    plt.show()
+    plt.savefig("{}_initiation_set.png".format(option.name))
+    plt.close()
 
 def visualize_option_policy(option):
     colors = ("red", "green", "blue", "yellow")
@@ -78,7 +79,8 @@ def visualize_option_policy(option):
     color_map = [colors[action] for action in actions]
     plt.scatter(x_positions, y_positions, c=color_map, alpha=0.7, edgecolors='none')
     plt.xlabel("x"); plt.ylabel("y"); plt.title("{} policy \nred: noop, green: left, blue: right, yellow: main".format(option.name))
-    plt.show()
+    plt.savefig("{}_policy.png".format(option.name))
+    plt.close()
     return x_positions, y_positions, actions
 
 # Perform forward passes through the given DQN model

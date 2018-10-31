@@ -17,6 +17,7 @@ from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.tasks import GymMDP, GridWorldMDP
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
+from simple_rl.skill_chaining.skill_chaining_utils import *
 from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
 
 class SkillChaining(object):
@@ -63,8 +64,10 @@ class SkillChaining(object):
         # Add the trained option to the action set of the global solver
         if untrained_option not in self.trained_options:
             self.trained_options.append(untrained_option)
-        if untrained_option not in self.mdp.actions:
-            self.mdp.actions.append(untrained_option)
+
+        # TODO: Eventually need to add trained options to the DQN
+        # if untrained_option not in self.mdp.actions:
+        #     self.mdp.actions.append(untrained_option)
 
         # Create new option whose termination is the initiation of the option we just trained
         name = "option_{}".format(str(len(self.trained_options)))
@@ -88,7 +91,7 @@ class SkillChaining(object):
                 return reward, next_state
         return 0., state
 
-    def skill_chaining(self, num_episodes=1500, num_steps=1000):
+    def skill_chaining(self, num_episodes=1200, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -178,6 +181,11 @@ class SkillChaining(object):
 
         return False
 
+    def perform_experiments(self):
+        for option in self.trained_options:
+            plot_initiation_set(option)
+            visualize_option_policy(option)
+
 
 def construct_pendulum_domain():
     # Overall goal predicate in the Pendulum domain
@@ -210,3 +218,4 @@ if __name__ == '__main__':
     solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
     chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
     chainer.skill_chaining()
+    chainer.perform_experiments()
