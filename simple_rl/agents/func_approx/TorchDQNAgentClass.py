@@ -28,6 +28,7 @@ EPS_DECAY = 0.995
 RANDOM_SEED = 0
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print("######### Using {} ############".format(device))
 
 class QNetwork(nn.Module):
     """Actor (Policy) Model."""

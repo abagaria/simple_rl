@@ -54,7 +54,8 @@ def get_init_data_and_labels(option):
     positive_labels = [1] * positive_feature_matrix.shape[0]
     negative_labels = [0] * negative_feature_matrix.shape[0]
     X = np.concatenate((positive_feature_matrix, negative_feature_matrix))
-    Y = np.concatenate((positive_labels, negative_labels)); return X, Y
+    Y = np.concatenate((positive_labels, negative_labels))
+    return X, Y
 
 def plot_initiation_set(option):
     trained_classifier = option.initiation_classifier

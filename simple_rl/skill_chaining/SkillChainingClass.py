@@ -5,9 +5,11 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pdb
-from collections import deque, defaultdict
+from collections import deque
 from copy import deepcopy
 import _pickle as pickle
+import torch
+import time
 
 # Other imports.
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
@@ -15,6 +17,7 @@ from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.tasks import GymMDP, GridWorldMDP
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
+from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=0.3, subgoal_hits=10):
@@ -99,6 +102,7 @@ class SkillChaining(object):
         # For logging purposes
         per_episode_scores = []
         last_100_scores = deque(maxlen=100)
+        epsilon = EPS_START
 
         for episode in range(num_episodes):
 
@@ -109,7 +113,7 @@ class SkillChaining(object):
             state_buffer = deque([], maxlen=self.buffer_length)
 
             for _ in range(num_steps):
-                action = self.global_solver.act(state.features(), reward)
+                action = self.global_solver.act(state.features(), epsilon)
                 reward, next_state = self.mdp.execute_agent_action(action)
                 self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
@@ -148,9 +152,21 @@ class SkillChaining(object):
 
             last_100_scores.append(score)
             per_episode_scores.append(score)
+
+            # Decay epsilon
+            epsilon = max(EPS_END, EPS_DECAY*epsilon)
+
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)), end="")
             if episode % 100 == 0:
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
+
+            if np.mean(last_100_scores) >= 200.0:
+                print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
+                                                                                             np.mean(last_100_scores)))
+                torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
+                break
+        else:
+            torch.save(self.global_solver.policy_network.state_dict(), 'unsolved_gsolver_{}.pth'.format(time.time()))
 
         return per_episode_scores
 
@@ -189,4 +205,3 @@ if __name__ == '__main__':
 
     with open("chainer1.pkl", "wb") as _file:
         pickle.dump(chainer, _file)
-        

@@ -255,12 +255,12 @@ class Option(object):
 	def execute_option_in_mdp(self, state, mdp):
 		if self.is_init_true(state):
 			# We only execute an option in an MDP if the option is already trained, in which case we can do eps=0
-			action = self.solver.act(state.features(), eps=0.)
+			action = self.solver.act(state.features(), eps=0.2)
 			reward, state = mdp.execute_agent_action(action)
 			while self.is_init_true(state) and not self.is_term_true(state) and \
 					not state.is_terminal() and not state.is_out_of_frame():
 				# update the DQN every time the option is used
-				action = self.solver.act(state.features(), eps=0.)
+				action = self.solver.act(state.features(), eps=0.2)
 				r, next_state = mdp.execute_agent_action(action)
 				self.solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
 				reward += r
