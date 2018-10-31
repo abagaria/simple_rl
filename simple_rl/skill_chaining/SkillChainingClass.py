@@ -202,6 +202,3 @@ if __name__ == '__main__':
     solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
     chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
     chainer.skill_chaining()
-
-    with open("chainer1.pkl", "wb") as _file:
-        pickle.dump(chainer, _file)
