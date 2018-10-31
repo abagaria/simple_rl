@@ -156,19 +156,27 @@ class SkillChaining(object):
             # Decay epsilon
             epsilon = max(EPS_END, EPS_DECAY*epsilon)
 
-            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)), end="")
-            if episode % 100 == 0:
-                print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
-
-            if np.mean(last_100_scores) >= 200.0:
-                print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
-                                                                                             np.mean(last_100_scores)))
-                torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
+            if self._log_dqn_status(episode, last_100_scores):
                 break
+
         else:
             torch.save(self.global_solver.policy_network.state_dict(), 'unsolved_gsolver_{}.pth'.format(time.time()))
 
         return per_episode_scores
+
+
+    def _log_dqn_status(self, episode, last_100_scores):
+        print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)), end="")
+        if episode % 100 == 0:
+            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
+
+        if np.mean(last_100_scores) >= 200.0:
+            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
+                                                                                         np.mean(last_100_scores)))
+            torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
+            return True
+
+        return False
 
 
 def construct_pendulum_domain():
