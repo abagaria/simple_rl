@@ -143,8 +143,8 @@ class SkillChaining(object):
 
                     reset_agent = True
 
-                for trained_option in self.trained_options: # type: Option
-                    trained_option.maybe_update_policy(experience)
+                # for trained_option in self.trained_options: # type: Option
+                #     trained_option.maybe_update_policy(experience)
 
                 # option_reward, next_state = self.execute_trained_option_if_possible(next_state)
                 #
