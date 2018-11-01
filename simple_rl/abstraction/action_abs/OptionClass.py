@@ -70,6 +70,8 @@ class Option(object):
 			self.policy = policy
 
 		self.solver = DQNAgent(overall_mdp.env.observation_space.shape[0], overall_mdp.env.action_space.n, 0, name=name)
+		self.global_solver = global_solver
+
 		if global_solver:
 			self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
 
@@ -175,7 +177,8 @@ class Option(object):
 
 	# TODO: Matt says that he only trained this DQN with points that were used as positive examples for the init classifier
 	def learn_policy_from_experience(self):
-		experience_buffer = self.experience_buffer.reshape(-1)
+		# TODO: Think about how big this buffer should be given that the DQN will not start learning until it has seen 64 experiences
+		experience_buffer = self.experience_buffer[25:, :].reshape(-1)
 		for _ in range(2):
 			for experience in experience_buffer:
 				state, a, r, s_prime = experience.serialize()
@@ -253,18 +256,27 @@ class Option(object):
 		return cur_state, total_reward
 
 	def execute_option_in_mdp(self, state, mdp):
+
 		if self.is_init_true(state):
-			# We only execute an option in an MDP if the option is already trained, in which case we can do eps=0
+
+			# TODO: Think about how to perform epsilon-decay for the option's DQN
 			action = self.solver.act(state.features(), eps=0.2)
 			reward, state = mdp.execute_agent_action(action)
-			while self.is_init_true(state) and not self.is_term_true(state) and \
-					not state.is_terminal() and not state.is_out_of_frame():
+
+			while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal() and not state.is_out_of_frame():
+
 				# update the DQN every time the option is used
 				action = self.solver.act(state.features(), eps=0.2)
 				r, next_state = mdp.execute_agent_action(action)
 				self.solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
+
+				# Questionable: The global DQN is updated at each time step, even if an option is being executed
+				if self.global_solver:
+					self.global_solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
+
 				reward += r
 				state = next_state
+
 			return reward, state
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 

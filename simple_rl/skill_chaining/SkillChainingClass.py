@@ -146,6 +146,7 @@ class SkillChaining(object):
                 # for trained_option in self.trained_options: # type: Option
                 #     trained_option.maybe_update_policy(experience)
 
+                # TODO: Think about the correct way to add this reward so as to not artificially increase the game score
                 option_reward, next_state = self.execute_trained_option_if_possible(next_state)
 
                 score += option_reward
@@ -207,7 +208,7 @@ def construct_grid_world_mdp():
     predicate = Predicate(func=lambda s: s.x == 10 and s.y == 10, name='OverallOption_GoalPredicate')
     return GridWorldMDP(10, 10, goal_predicate=predicate, slip_prob=0.2)
 
-def contruct_lunar_lander_mdp():
+def construct_lunar_lander_mdp():
     predicate = LunarLanderMDP.default_goal_predicate()
     return LunarLanderMDP(goal_predicate=predicate, render=False)
 
@@ -217,9 +218,9 @@ def construct_positional_lunar_lander_mdp():
     return PositionalLunarLanderMDP(goal_predicate=predicate, render=False)
 
 if __name__ == '__main__':
-    overall_mdp = contruct_lunar_lander_mdp()
+    overall_mdp = construct_lunar_lander_mdp()
     environment = overall_mdp.env
     solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
     chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
-    chainer.skill_chaining()
+    episodic_scores = chainer.skill_chaining()
     chainer.perform_experiments()
