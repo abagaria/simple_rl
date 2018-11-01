@@ -176,14 +176,14 @@ class Option(object):
 	# TODO: Matt says that he only trained this DQN with points that were used as positive examples for the init classifier
 	def learn_policy_from_experience(self):
 		experience_buffer = self.experience_buffer.reshape(-1)
-		for _ in range(50):
+		for _ in range(2):
 			for experience in experience_buffer:
 				state, a, r, s_prime = experience.serialize()
 				self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
 
 	def _learn_policy_from_new_experiences(self):
 		experience_buffer = self.new_experience_buffer
-		for _ in range(50):
+		for _ in range(2):
 			for experience in experience_buffer:
 				state, a, r, s_prime = experience
 				self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())

@@ -1,5 +1,9 @@
 # Python imports.
 from __future__ import print_function
+
+import sys
+sys.path = [""] + sys.path
+
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -125,7 +129,7 @@ class SkillChaining(object):
                 state_buffer.append(state)
                 score += reward
 
-                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and episode < 100:
+                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and episode < 50:
                     # If we hit a subgoal, modify the last experience to reflect the augmented reward
                     if untrained_option != goal_option:
                         experience_buffer[-1] = (state, action, reward + self.subgoal_reward, next_state)
@@ -142,9 +146,9 @@ class SkillChaining(object):
                 for trained_option in self.trained_options: # type: Option
                     trained_option.maybe_update_policy(experience)
 
-                option_reward, next_state = self.execute_trained_option_if_possible(next_state)
-
-                score += option_reward
+                # option_reward, next_state = self.execute_trained_option_if_possible(next_state)
+                #
+                # score += option_reward
                 state = next_state
 
                 # Reset the agent so that we don't keep moving around the initiation set of the trained option
