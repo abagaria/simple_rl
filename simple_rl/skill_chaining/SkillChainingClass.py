@@ -129,7 +129,7 @@ class SkillChaining(object):
                 state_buffer.append(state)
                 score += reward
 
-                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and episode < 75:
+                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and len(self.trained_options) < 2:
                     # If we hit a subgoal, modify the last experience to reflect the augmented reward
                     if untrained_option != goal_option:
                         experience_buffer[-1] = (state, action, reward + self.subgoal_reward, next_state)

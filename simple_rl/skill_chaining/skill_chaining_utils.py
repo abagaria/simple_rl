@@ -88,9 +88,12 @@ def visualize_option_policy(option):
 def render_dqn_policy(env, dqn_model):
     for i in range(3):
         state = env.reset()
+        episodic_score = 0.
         for j in range(750):
             action = dqn_model.act(state)
             env.render()
             state, reward, done, _ = env.step(action)
+            episodic_score += reward
             if done: break
+        print("Episode {}\tScore={}".format(i, episodic_score))
     env.close()
