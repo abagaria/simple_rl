@@ -190,6 +190,9 @@ class SkillChaining(object):
         for option in self.trained_options:
             plot_initiation_set(option)
             visualize_option_policy(option)
+            visualize_option_starting_and_ending_points(option)
+            visualize_reason_for_option_termination(option)
+            plot_epsilon_history(option)
 
 
 def construct_pendulum_domain():

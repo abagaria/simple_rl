@@ -13,6 +13,7 @@ from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
 from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
+from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -71,6 +72,7 @@ class Option(object):
 
 		self.solver = DQNAgent(overall_mdp.env.observation_space.shape[0], overall_mdp.env.action_space.n, 0, name=name)
 		self.global_solver = global_solver
+		self.epsilon = EPS_START
 
 		if global_solver:
 			self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
@@ -85,6 +87,11 @@ class Option(object):
 
 		self.overall_mdp = overall_mdp
 		self.num_goal_hits = 0
+
+		# Debug member variables
+		self.starting_points = []
+		self.ending_points 	 = []
+		self.epsilon_history = []
 
 	def __str__(self):
 		return self.name
@@ -162,7 +169,6 @@ class Option(object):
 		positive_experiences = self.initiation_data[25:, :] # Last 15 states are positive examples
 		return positive_experiences, negative_experiences
 
-	# TODO: Test this classifier
 	def train_initiation_classifier(self):
 		positive_examples, negative_examples = self._split_experience_into_pos_neg_examples()
 		positive_feature_matrix = self._construct_feature_matrix(positive_examples)
@@ -259,25 +265,36 @@ class Option(object):
 
 		if self.is_init_true(state):
 
-			# TODO: Think about how to perform epsilon-decay for the option's DQN
-			action = self.solver.act(state.features(), eps=0.2)
-			reward, state = mdp.execute_agent_action(action)
+			self.starting_points.append(state)
+			self.epsilon_history.append(self.epsilon)
+
+			action = self.solver.act(state.features(), eps=self.epsilon)
+			reward, next_state = mdp.execute_agent_action(action)
+			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+			state = next_state
 
 			while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal() and not state.is_out_of_frame():
 
 				# update the DQN every time the option is used
-				action = self.solver.act(state.features(), eps=0.2)
+				action = self.solver.act(state.features(), eps=self.epsilon)
 				r, next_state = mdp.execute_agent_action(action)
 				self.solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
 
 				# Questionable: The global DQN is updated at each time step, even if an option is being executed
+				# i.e, making off-policy updates to the global solver when we are executing an option
 				if self.global_solver:
 					self.global_solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
 
 				reward += r
 				state = next_state
 
+			# Epsilon decay
+			self.epsilon = max(EPS_END, EPS_DECAY*self.epsilon)
+
+			self.ending_points.append(state)
+
 			return reward, state
+
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 
 	def policy_from_dict(self, state):

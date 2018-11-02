@@ -83,6 +83,48 @@ def visualize_option_policy(option):
     plt.close()
     return x_positions, y_positions, actions
 
+def visualize_option_starting_and_ending_points(option):
+    start_x = [x.x for x in option.starting_points]
+    start_y = [x.y for x in option.starting_points]
+    end_x = [x.x for x in option.ending_points]
+    end_y = [x.y for x in option.ending_points]
+
+    plt.plot(start_x, start_y, '.', label='start points')
+    plt.plot(end_x, end_y, '.', label='end points')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('{}'.format(option.name))
+    plt.legend()
+    plt.savefig('starting_ending_{}.png'.format(option.name))
+    plt.close()
+
+def visualize_reason_for_option_termination(option):
+    init_trues = [s for s in option.ending_points if not option.is_init_true(s)]
+    term_trues = [s for s in option.ending_points if option.is_term_true(s)]
+    is_terminals = [s for s in option.ending_points if s.is_terminal()]
+    out_of_frames = [s for s in option.ending_points if s.is_out_of_frame()]
+
+    plt.figure()
+    plt.plot([s.x for s in init_trues], [s.y for s in init_trues], '.', label="init false")
+    plt.plot([s.x for s in term_trues], [s.y for s in term_trues], '.', label="term true")
+    plt.plot([s.x for s in is_terminals], [s.y for s in is_terminals], '.', label="is_terminal true")
+    plt.plot([s.x for s in out_of_frames], [s.y for s in out_of_frames], '.', label="out of frame true")
+    plt.legend()
+    plt.title('{}: reason for termination'.format(option.name))
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.savefig('{}_reason_for_termination.png'.format(option.name))
+    plt.close()
+
+def plot_epsilon_history(option):
+    plt.figure()
+    plt.plot(range(len(option.epsilon_history)), option.epsilon_history, '.')
+    plt.xlabel('Iteration of option execution')
+    plt.ylabel('epsilon')
+    plt.title('{} Epsilon History'.format(option.name))
+    plt.savefig('{}_epsilon_history.png'.format(option.name))
+    plt.close()
+
 # Perform forward passes through the given DQN model
 # so that we can visually see how it is performing
 def render_dqn_policy(env, dqn_model):
