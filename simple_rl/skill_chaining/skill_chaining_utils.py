@@ -125,6 +125,24 @@ def plot_epsilon_history(option):
     plt.savefig('{}_epsilon_history.png'.format(option.name))
     plt.close()
 
+def plot_replay_buffer_size(option):
+    plt.figure()
+    plt.plot(range(len(option.num_states_in_replay_buffer)), option.num_states_in_replay_buffer)
+    plt.xlabel('Iteration of option execution')
+    plt.ylabel('# states')
+    plt.title("{}: replay buffer size over episodes".format(option.name))
+    plt.savefig('{}_replay_buffer_size.png'.format(option.name))
+    plt.close()
+
+def plot_num_learning_updates(option):
+    plt.figure()
+    plt.plot(range(len(option.num_learning_updates_dqn)), option.num_learning_updates_dqn)
+    plt.xlabel('Iteration of option execution')
+    plt.ylabel('# updates')
+    plt.title('{}: number of DQN learning updates'.format(option.name))
+    plt.savefig('{}_num_dqn_updates.png'.format(option.name))
+    plt.close()
+
 # Perform forward passes through the given DQN model
 # so that we can visually see how it is performing
 def render_dqn_policy(env, dqn_model):

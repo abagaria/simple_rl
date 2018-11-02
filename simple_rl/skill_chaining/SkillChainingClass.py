@@ -193,6 +193,8 @@ class SkillChaining(object):
             visualize_option_starting_and_ending_points(option)
             visualize_reason_for_option_termination(option)
             plot_epsilon_history(option)
+            plot_replay_buffer_size(option)
+            plot_num_learning_updates(option)
 
 
 def construct_pendulum_domain():

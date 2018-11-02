@@ -92,6 +92,8 @@ class Option(object):
 		self.starting_points = []
 		self.ending_points 	 = []
 		self.epsilon_history = []
+		self.num_states_in_replay_buffer = []
+		self.num_learning_updates_dqn = []
 
 	def __str__(self):
 		return self.name
@@ -265,8 +267,12 @@ class Option(object):
 
 		if self.is_init_true(state):
 
+			# ------------------ Debug logging for option's policy learning ------------------
 			self.starting_points.append(state)
 			self.epsilon_history.append(self.epsilon)
+			self.num_states_in_replay_buffer.append(len(self.solver.replay_buffer))
+			self.num_learning_updates_dqn.append(self.solver.num_updates)
+			# ---------------------------------------------------------------------------------
 
 			action = self.solver.act(state.features(), eps=self.epsilon)
 			reward, next_state = mdp.execute_agent_action(action)

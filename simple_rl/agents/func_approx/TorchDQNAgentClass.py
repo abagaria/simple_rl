@@ -80,6 +80,9 @@ class DQNAgent(Agent):
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
 
+        # Debugging attributes
+        self.num_updates = 0
+
         Agent.__init__(self, name, range(action_size), GAMMA)
 
     def act(self, state, eps=0.):
@@ -123,6 +126,7 @@ class DQNAgent(Agent):
             if len(self.replay_buffer) > BATCH_SIZE:
                 experiences = self.replay_buffer.sample()
                 self._learn(experiences, GAMMA)
+                self.num_updates += 1
 
     def _learn(self, experiences, gamma):
         """
