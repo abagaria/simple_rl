@@ -145,7 +145,7 @@ class SkillChaining(object):
 
                 for trained_option in self.trained_options: # type: Option
                     if trained_option.is_term_true(next_state):
-                        trained_option.maybe_update_policy(experience_buffer)
+                        trained_option.update_trained_option_policy(experience_buffer)
 
                 # TODO: Think about the correct way to add this reward so as to not artificially increase the game score
                 option_reward, next_state = self.execute_trained_option_if_possible(next_state)

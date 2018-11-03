@@ -188,9 +188,7 @@ class Option(object):
 		self.initiation_classifier.fit(X, Y)
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0], name=self.name+'_init_predicate')
 
-	# TODO: Matt says that he only trained this DQN with points that were used as positive examples for the init classifier
 	def learn_policy_from_experience(self):
-		# TODO: Think about how big this buffer should be given that the DQN will not start learning until it has seen 64 experiences
 		experience_buffer = self.experience_buffer[25:, :].reshape(-1)
 		for _ in range(2):
 			for experience in experience_buffer:
@@ -215,7 +213,7 @@ class Option(object):
 		"""
 		self.new_experience_buffer.append(experience)
 
-	def maybe_update_policy(self, experience_buffer):
+	def update_trained_option_policy(self, experience_buffer):
 		"""
 		If we hit the initiation set of a trained option, we may want to update its policy.
 		Args:

@@ -146,8 +146,7 @@ class DQNAgent(Agent):
         Q_expected = self.policy_network(states).gather(1, actions)
 
         # Compute loss
-        # TODO: try loss = F.smooth_l1_loss(Q_expected, Q_targets) { Huber Loss }
-        # loss = F.mse_loss(Q_expected, Q_targets)
+        # Akhil: Using Huber Loss here rather than the MSE loss from before
         loss = F.smooth_l1_loss(Q_expected, Q_targets)
         # Minimize the loss
         self.optimizer.zero_grad()
