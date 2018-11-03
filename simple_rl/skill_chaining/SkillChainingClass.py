@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.skill_chaining_utils import *
 from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=0.3, subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -149,6 +149,11 @@ class SkillChaining(object):
 
                 # TODO: Think about the correct way to add this reward so as to not artificially increase the game score
                 option_reward, next_state = self.execute_trained_option_if_possible(next_state)
+
+                # Its possible that execute_trained_option_if_possible() got us to the goal state,
+                # in which case we still want to train its DQN using off-policy updates
+                if goal_option.is_term_true(next_state):
+                    goal_option.update_trained_option_policy(experience_buffer)
 
                 score += option_reward
                 state = next_state
