@@ -157,3 +157,8 @@ def render_dqn_policy(env, dqn_model):
             if done: break
         print("Episode {}\tScore={}".format(i, episodic_score))
     env.close()
+
+def render_learned_policy(skill_chainer):
+    for i in range(3):
+        score = skill_chainer.trained_forward_pass()
+        print("Episode {}: Score: {:.2f}".format(i, score))

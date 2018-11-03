@@ -202,6 +202,27 @@ class SkillChaining(object):
             plot_replay_buffer_size(option)
             plot_num_learning_updates(option)
 
+    def trained_forward_pass(self):
+        """
+        Called when skill chaining has finished training: execute options when possible and then atomic actions
+        Returns:
+            overall_reward (float): score accumulated over the course of the episode.
+        """
+        self.mdp.reset()
+        state = deepcopy(self.mdp.init_state)
+        overall_reward = 0.
+        self.mdp.render = True
+        while not state.is_terminal():
+            option_reward, next_state = self.execute_trained_option_if_possible(state)
+            overall_reward += option_reward
+            action = self.global_solver.act(next_state.features(), eps=0.)
+            reward, next_state = self.mdp.execute_agent_action(action)
+            overall_reward += reward
+            state = next_state
+        self.mdp.render = False
+        self.mdp.env.close()
+        return overall_reward
+
 
 def construct_pendulum_domain():
     # Overall goal predicate in the Pendulum domain
