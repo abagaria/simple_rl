@@ -13,7 +13,9 @@ from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
 from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
-from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
+from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_END
+
+EPS_DECAY = 0.998
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -94,6 +96,9 @@ class Option(object):
 		self.epsilon_history = []
 		self.num_states_in_replay_buffer = []
 		self.num_learning_updates_dqn = []
+		self.num_times_indirect_update = 0
+		self.num_indirect_updates = []
+		self.policy_refinement_data = []
 
 	def __str__(self):
 		return self.name
@@ -210,16 +215,20 @@ class Option(object):
 		"""
 		self.new_experience_buffer.append(experience)
 
-	def maybe_update_policy(self, experience):
+	def maybe_update_policy(self, experience_buffer):
 		"""
 		If we hit the initiation set of a trained option, we may want to update its policy.
 		Args:
-			experience (tuple): (s, a, r, s')
+			experience_buffer (deque): (s, a, r, s')
 		"""
-		state, action, reward, next_state = experience
-		if self.is_init_true(next_state):
-			self.expand_experience_buffer(experience)
-			self._learn_policy_from_new_experiences()
+		self.num_times_indirect_update += 1
+		positive_experiences = list(experience_buffer)[-15:]
+		positive_states = [positive_experience[0] for positive_experience in positive_experiences]
+		self.policy_refinement_data.append(positive_states)
+		for experience in positive_experiences:
+			state, action, reward, next_state = experience
+			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+
 
 	def create_child_option(self, init_state, actions, new_option_name, default_q=0., global_solver=None):
 		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
@@ -272,6 +281,7 @@ class Option(object):
 			self.epsilon_history.append(self.epsilon)
 			self.num_states_in_replay_buffer.append(len(self.solver.replay_buffer))
 			self.num_learning_updates_dqn.append(self.solver.num_updates)
+			self.num_indirect_updates.append(self.num_times_indirect_update)
 			# ---------------------------------------------------------------------------------
 
 			action = self.solver.act(state.features(), eps=self.epsilon)
