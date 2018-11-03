@@ -249,23 +249,7 @@ def train(agent, env, episodes, steps, epsilon_start, epsilon_end, epsilon_decay
             break
     return per_episode_scores
 
-def main():
-    env = gym.make('LunarLander-v2')
-    env.seed(RANDOM_SEED)
-    print('State shape: ', env.observation_space.shape)
-    print('Number of actions: ', env.action_space.n)
-
-    dqn_agent = DQNAgent(state_size=env.observation_space.shape[0], action_size=env.action_space.n, seed=RANDOM_SEED)
-    episode_scores = train(dqn_agent, env, NUM_EPISODES, NUM_STEPS, EPS_START, EPS_END, EPS_DECAY)
-
-    # plot the scores
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    plt.plot(np.arange(len(episode_scores)), episode_scores)
-    plt.ylabel('Score')
-    plt.xlabel('Episode #')
-    plt.savefig('learning_curve.png')
-
+def test_forward_pass(dqn_agent, env):
     # load the weights from file
     dqn_agent.policy_network.load_state_dict(torch.load('checkpoint.pth'))
 
@@ -279,6 +263,25 @@ def main():
                 break
 
     env.close()
+
+def main(num_training_episodes=NUM_EPISODES, to_plot=False):
+    env = gym.make('LunarLander-v2')
+
+    # env.seed(RANDOM_SEED)
+
+    dqn_agent = DQNAgent(state_size=env.observation_space.shape[0], action_size=env.action_space.n, seed=RANDOM_SEED)
+    episode_scores = train(dqn_agent, env, num_training_episodes, NUM_STEPS, EPS_START, EPS_END, EPS_DECAY)
+
+    if to_plot:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        plt.plot(np.arange(len(episode_scores)), episode_scores)
+        plt.ylabel('Score')
+        plt.xlabel('Episode #')
+        plt.savefig('learning_curve.png')
+        plt.close()
+
+    return episode_scores
 
 if __name__ == '__main__':
     main()
