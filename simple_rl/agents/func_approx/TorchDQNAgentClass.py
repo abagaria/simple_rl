@@ -106,6 +106,14 @@ class DQNAgent(Agent):
             return np.argmax(action_values.cpu().data.numpy())
         return random.choice(np.arange(self.action_size))
 
+    def get_value(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+        self.policy_network.eval()
+        with torch.no_grad():
+            action_values = self.policy_network(state)
+        self.policy_network.train()
+        return np.max(action_values.cpu().data.numpy())
+
     def step(self, state, action, reward, next_state, done):
         """
         Interface method to perform 1 step of learning/optimization during training.
