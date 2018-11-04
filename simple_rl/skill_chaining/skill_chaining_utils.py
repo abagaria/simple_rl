@@ -145,17 +145,27 @@ def plot_num_learning_updates(option):
 
 # Perform forward passes through the given DQN model
 # so that we can visually see how it is performing
-def render_dqn_policy(env, dqn_model):
-    for i in range(3):
+def render_dqn_policy(env, dqn_model, show_value_plot=False):
+    plt.figure()
+    for i in range(4):
+        values = []
         state = env.reset()
         episodic_score = 0.
         for j in range(1000):
             action = dqn_model.act(state)
+            values.append(dqn_model.get_value(state))
             env.render()
             state, reward, done, _ = env.step(action)
             episodic_score += reward
             if done: break
         print("Episode {}\tScore={}".format(i, episodic_score))
+        plt.subplot(2, 2, i+1)
+        plt.plot(values)
+        plt.xlabel("# Frame")
+        plt.ylabel("V(s)")
+    if show_value_plot:
+        plt.show()
+    plt.close()
     env.close()
 
 def render_learned_policy(skill_chainer):
