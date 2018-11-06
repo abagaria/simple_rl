@@ -16,6 +16,7 @@ from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import Positio
 from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_END
 
 EPS_DECAY = 0.998
+GESTATION_PERIOD = 20 # episodes
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -89,6 +90,7 @@ class Option(object):
 
 		self.overall_mdp = overall_mdp
 		self.num_goal_hits = 0
+		self.times_executed_since_being_trained = 0
 
 		# Debug member variables
 		self.starting_points = []
@@ -282,6 +284,7 @@ class Option(object):
 			self.num_indirect_updates.append(self.num_times_indirect_update)
 			# ---------------------------------------------------------------------------------
 
+			self.times_executed_since_being_trained += 1
 			action = self.solver.act(state.features(), eps=self.epsilon)
 			reward, next_state = mdp.execute_agent_action(action)
 			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
@@ -289,15 +292,18 @@ class Option(object):
 
 			while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal() and not state.is_out_of_frame():
 
-				# update the DQN every time the option is used
-				action = self.solver.act(state.features(), eps=self.epsilon)
+				# Perform off-policy updates on the option's DQN during the option's gestation period
+				if self.times_executed_since_being_trained >= GESTATION_PERIOD:
+					action = self.solver.act(state.features(), eps=self.epsilon)
+				else:
+					action = self.global_solver.act(state.features(), eps=self.epsilon)
+
 				r, next_state = mdp.execute_agent_action(action)
 				self.solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
 
-				# Questionable: The global DQN is updated at each time step, even if an option is being executed
+				# The global DQN is updated at each time step, even if an option is being executed
 				# i.e, making off-policy updates to the global solver when we are executing an option
-				if self.global_solver:
-					self.global_solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
+				self.global_solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
 
 				reward += r
 				state = next_state
