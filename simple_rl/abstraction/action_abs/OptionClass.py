@@ -43,7 +43,7 @@ class Experience(object):
 class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
-				 term_prob=0.01, default_q=0., global_solver=None):
+				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -56,6 +56,7 @@ class Option(object):
 			term_prob (float)
 			default_q (float)
 			global_solver (DQNAgent)
+			buffer_length (int)
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -63,6 +64,7 @@ class Option(object):
 		self.term_flag = False
 		self.name = name
 		self.term_prob = term_prob
+		self.buffer_length = buffer_length
 
 		# if init_state.is_terminal() and not self.is_term_true(init_state):
 		init_state.set_terminal(False)
@@ -83,7 +85,6 @@ class Option(object):
 		self.initiation_classifier = svm.SVC(kernel="rbf")
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
-		buffer_length = 40
 		self.initiation_data = np.empty((buffer_length, 10), dtype=State)
 		self.experience_buffer = np.empty((buffer_length, 10), dtype=Experience)
 		self.new_experience_buffer = deque([], maxlen=50)
@@ -174,8 +175,9 @@ class Option(object):
 		return X
 
 	def _split_experience_into_pos_neg_examples(self):
-		negative_experiences = self.initiation_data[:25, :] # 1st 25 states are negative examples
-		positive_experiences = self.initiation_data[25:, :] # Last 15 states are positive examples
+		num_negative_examples = (5 * self.buffer_length) // 8
+		negative_experiences = self.initiation_data[:num_negative_examples, :] # 1st 25 states are negative examples
+		positive_experiences = self.initiation_data[num_negative_examples:, :] # Last 15 states are positive examples
 		return positive_experiences, negative_experiences
 
 	def train_initiation_classifier(self):
@@ -230,11 +232,11 @@ class Option(object):
 			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 
-	def create_child_option(self, init_state, actions, new_option_name, default_q=0., global_solver=None):
+	def create_child_option(self, init_state, actions, new_option_name, global_solver, buffer_length, default_q=0.):
 		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
 		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
 								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
-								  default_q=default_q, global_solver=global_solver)
+								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length)
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):

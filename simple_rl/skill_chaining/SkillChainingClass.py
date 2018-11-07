@@ -61,10 +61,6 @@ class SkillChaining(object):
         # Update the solver of the untrained option on all the states in its experience
         untrained_option.learn_policy_from_experience()
 
-        # The max of the qvalues sampled during the transitions that triggered the option's target event
-        # is used to initialize the solver of the new untrained option.
-        max_qvalue = 0.  # max([untrained_option.solver.get_max_q_value(s) for s in untrained_option.initiation_data])
-
         # Add the trained option to the action set of the global solver
         if untrained_option not in self.trained_options:
             self.trained_options.append(untrained_option)
@@ -82,8 +78,8 @@ class SkillChaining(object):
         new_untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
                                                                 actions=self.original_actions,
                                                                 new_option_name=name,
-                                                                default_q=max_qvalue,
-                                                                global_solver=self.global_solver)
+                                                                global_solver=self.global_solver,
+                                                                buffer_length=self.buffer_length)
         return new_untrained_option
 
     def execute_trained_option_if_possible(self, state):
@@ -99,7 +95,8 @@ class SkillChaining(object):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
-                             name='overall_goal_policy', term_prob=0., global_solver=self.global_solver)
+                             name='overall_goal_policy', term_prob=0., global_solver=self.global_solver,
+                             buffer_length=self.buffer_length)
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
@@ -252,6 +249,7 @@ def construct_positional_lunar_lander_mdp():
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()
     environment = overall_mdp.env
+    # environment.seed(0) TODO: Set this seed so that we can compare between runs
     solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
     chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
     episodic_scores = chainer.skill_chaining()
