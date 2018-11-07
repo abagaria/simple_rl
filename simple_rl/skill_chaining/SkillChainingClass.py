@@ -59,7 +59,7 @@ class SkillChaining(object):
         untrained_option.train_initiation_classifier()
 
         # Update the solver of the untrained option on all the states in its experience
-        untrained_option.learn_policy_from_experience()
+        untrained_option.initialize_option_policy()
 
         # Add the trained option to the action set of the global solver
         if untrained_option not in self.trained_options:

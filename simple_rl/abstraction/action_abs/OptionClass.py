@@ -79,8 +79,7 @@ class Option(object):
 		self.global_solver = global_solver
 		self.epsilon = EPS_START
 
-		if global_solver:
-			self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
+		self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
 
 		self.initiation_classifier = svm.SVC(kernel="rbf")
 
@@ -192,8 +191,13 @@ class Option(object):
 		self.initiation_classifier.fit(X, Y)
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0], name=self.name+'_init_predicate')
 
-	def learn_policy_from_experience(self):
-		experience_buffer = self.experience_buffer[25:, :].reshape(-1)
+	def initialize_option_policy(self):
+		# Initialize the local DQN's policy with the weights of the global DQN
+		self.solver.policy_network.load_state_dict(self.global_solver.policy_network.state_dict())
+
+		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
+		num_negative_examples = (5 * self.buffer_length) // 8
+		experience_buffer = self.experience_buffer[num_negative_examples:, :].reshape(-1)
 		for _ in range(2):
 			for experience in experience_buffer:
 				state, a, r, s_prime = experience.serialize()
