@@ -12,7 +12,7 @@ from simple_rl.skill_chaining.SkillChainingClass import SkillChaining, construct
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent, main
 
 class SkillChainingExperiments(object):
-    def __init__(self, mdp, num_episodes=2000, num_instances=1, random_seed=0):
+    def __init__(self, mdp, num_episodes=2000, num_instances=5, random_seed=0):
         self.mdp = mdp
         self.num_episodes = num_episodes
         self.num_instances = num_instances
@@ -53,7 +53,24 @@ class SkillChainingExperiments(object):
         sns.lineplot(x="episode", y="reward", hue="method", data=scores_dataframe)
         plt.savefig("skill_chaining_comparison.png")
 
+    def compare_hyperparameter_subgoal_reward(self):
+        print("=" * 80)
+        print("Training skill chaining agent..")
+        print("=" * 80)
+        list_scores = []
+        for n in [0., 20.]:
+            for i in range(self.num_instances):
+                print("\nInstance {} of {}".format(i + 1, self.num_instances))
+                print("-" * 80)
+                solver = DQNAgent(self.mdp.env.observation_space.shape[0], self.mdp.env.action_space.n, 0)
+                skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, subgoal_reward=n, rl_agent=solver)
+                episodic_scores = skill_chaining_agent.skill_chaining(num_episodes=self.num_episodes)
+                list_scores.append((n, np.mean(episodic_scores), np.std(episodic_scores)))
+
+        return list_scores
+
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()
     experiments = SkillChainingExperiments(overall_mdp)
-    experiments.compare_agents()
+    # experiments.compare_agents()
+    subgoal_scores = experiments.compare_hyperparameter_subgoal_reward()
