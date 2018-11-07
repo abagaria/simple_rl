@@ -87,23 +87,13 @@ class SkillChaining(object):
         return new_untrained_option
 
     def execute_trained_option_if_possible(self, state):
-        """
-        Starting from the trained option furthest away from the goal, take options sequentially.
-        If all the options are trained well, we should end up in the goal state.
-        Args:
-            state (State): state we are starting from
-
-        Returns:
-            overall_option_reward (float): reward accumulated from all the option execution
-            state (State): state at the end of all the option execution
-        """
-        overall_option_reward = 0.
         # If s' is in the initiation set of ANY trained option, execute the option
-        for trained_option in reversed(self.trained_options):  # type: Option
+        for trained_option in self.trained_options:  # type: Option
             if trained_option.is_init_true(state):
-                reward, state = trained_option.execute_option_in_mdp(state, self.mdp)
-                overall_option_reward += reward
-        return overall_option_reward, state
+                # print("Taking option {} from state {}\n".format(trained_option.name, state))
+                reward, next_state = trained_option.execute_option_in_mdp(state, self.mdp)
+                return reward, next_state
+        return 0., state
 
     def skill_chaining(self, num_episodes=1200, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
