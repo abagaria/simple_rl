@@ -190,7 +190,11 @@ class Option(object):
 		self.initiation_classifier.fit(X, Y)
 		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0], name=self.name+'_init_predicate')
 
-	def learn_policy_from_experience(self):
+	def learn_policy_from_experience(self, to_copy_policy_net=False, to_copy_target_net=False):
+		if to_copy_policy_net:
+			self.solver.policy_network.load_state_dict(self.global_solver.policy_network.state_dict())
+		if to_copy_target_net:
+			self.solver.target_network.load_state_dict(self.global_solver.target_network.state_dict())
 		experience_buffer = self.experience_buffer[25:, :].reshape(-1)
 		for _ in range(2):
 			for experience in experience_buffer:

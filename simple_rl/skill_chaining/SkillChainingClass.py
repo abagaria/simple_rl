@@ -25,7 +25,8 @@ from simple_rl.skill_chaining.skill_chaining_utils import *
 from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10,
+                 to_copy_policy_net=False, to_copy_target_net=False):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -45,6 +46,10 @@ class SkillChaining(object):
 
         self.trained_options = []
 
+        # Experimental
+        self.to_copy_policy_net = to_copy_policy_net
+        self.to_copy_target_net = to_copy_target_net
+
     def _train_untrained_option(self, untrained_option):
         """
         Train the current untrained option and initialize a new one to target.
@@ -59,7 +64,8 @@ class SkillChaining(object):
         untrained_option.train_initiation_classifier()
 
         # Update the solver of the untrained option on all the states in its experience
-        untrained_option.learn_policy_from_experience()
+        untrained_option.learn_policy_from_experience(to_copy_policy_net=self.to_copy_policy_net,
+                                                      to_copy_target_net=self.to_copy_target_net)
 
         # The max of the qvalues sampled during the transitions that triggered the option's target event
         # is used to initialize the solver of the new untrained option.
@@ -187,8 +193,9 @@ class SkillChaining(object):
         if np.mean(last_100_scores) >= 200.0:
             print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
                                                                                          np.mean(last_100_scores)))
-            torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
-            return True
+            if episode == 1200:
+                torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
+            # return True
 
         return False
 
