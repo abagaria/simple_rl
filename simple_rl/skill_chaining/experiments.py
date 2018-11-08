@@ -12,7 +12,7 @@ from simple_rl.skill_chaining.SkillChainingClass import SkillChaining, construct
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent, main
 
 class SkillChainingExperiments(object):
-    def __init__(self, mdp, num_episodes=2000, num_instances=5, random_seed=0):
+    def __init__(self, mdp, num_episodes=10, num_instances=3, random_seed=0):
         self.mdp = mdp
         self.num_episodes = num_episodes
         self.num_instances = num_instances
@@ -69,8 +69,48 @@ class SkillChainingExperiments(object):
 
         return list_scores
 
+    def to_step_or_not_to_step(self):
+        print("=" * 80)
+        print("To Step")
+        print("=" * 80)
+        to_step_scores, episode_numbers = [], []
+        for i in range(self.num_instances):
+            print("\nInstance {} of {}".format(i + 1, self.num_instances))
+            solver = DQNAgent(self.mdp.env.observation_space.shape[0], self.mdp.env.action_space.n, 0)
+            skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, rl_agent=solver, step_before=True)
+            episodic_scores = skill_chaining_agent.skill_chaining(num_episodes=self.num_episodes)
+            episode_numbers += list(range(self.num_episodes))
+            to_step_scores += episodic_scores
+
+        print("")
+        print("=" * 80)
+        print("Not To Step")
+        print("=" * 80)
+        not_to_step_scores, episode_numbers = [], []
+        for i in range(self.num_instances):
+            print("\nInstance {} of {}".format(i + 1, self.num_instances))
+            solver = DQNAgent(self.mdp.env.observation_space.shape[0], self.mdp.env.action_space.n, 0)
+            skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, rl_agent=solver, step_before=False)
+            episodic_scores = skill_chaining_agent.skill_chaining(num_episodes=self.num_episodes)
+            episode_numbers += list(range(self.num_episodes))
+            not_to_step_scores += episodic_scores
+
+        scores = to_step_scores + not_to_step_scores
+        episodes = episode_numbers + episode_numbers
+        algorithm = ["step_before"] * len(episode_numbers) + ["dont_step_before"] * len(episode_numbers)
+        scores_dataframe = pd.DataFrame(np.array(scores), columns=["reward"])
+        scores_dataframe["episode"] = np.array(episodes)
+
+        plt.figure()
+        scores_dataframe["method"] = np.array(algorithm)
+        sns.lineplot(x="episode", y="reward", hue="method", data=scores_dataframe)
+        plt.savefig("stepping_before_comparison.png")
+
+        return scores_dataframe
+
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()
     experiments = SkillChainingExperiments(overall_mdp)
     # experiments.compare_agents()
-    subgoal_scores = experiments.compare_hyperparameter_subgoal_reward()
+    # subgoal_scores = experiments.compare_hyperparameter_subgoal_reward()
+    scores_dataframe = experiments.to_step_or_not_to_step()

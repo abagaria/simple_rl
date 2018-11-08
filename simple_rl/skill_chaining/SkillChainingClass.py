@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.skill_chaining_utils import *
 from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, step_before, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -42,6 +42,8 @@ class SkillChaining(object):
         self.buffer_length = buffer_length
         self.subgoal_reward = subgoal_reward
         self.num_goal_hits_before_training = subgoal_hits
+
+        self.step_before = step_before
 
         self.trained_options = []
 
@@ -87,7 +89,7 @@ class SkillChaining(object):
         for trained_option in self.trained_options:  # type: Option
             if trained_option.is_init_true(state):
                 # print("Taking option {} from state {}\n".format(trained_option.name, state))
-                reward, next_state = trained_option.execute_option_in_mdp(state, self.mdp)
+                reward, next_state = trained_option.execute_option_in_mdp(state, self.mdp, self.step_before)
                 return reward, next_state
         return 0., state
 
@@ -182,10 +184,11 @@ class SkillChaining(object):
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
 
         if np.mean(last_100_scores) >= 200.0:
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
-                                                                                         np.mean(last_100_scores)))
-            torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
-            return True
+            # print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
+            #                                                                              np.mean(last_100_scores)))
+            if episode == 2000:
+                torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
+            # return True
 
         return False
 

@@ -280,7 +280,7 @@ class Option(object):
 
 		return cur_state, total_reward
 
-	def execute_option_in_mdp(self, state, mdp):
+	def execute_option_in_mdp(self, state, mdp, step_before):
 
 		if self.is_init_true(state):
 
@@ -293,10 +293,14 @@ class Option(object):
 			# ---------------------------------------------------------------------------------
 
 			self.times_executed_since_being_trained += 1
-			action = self.solver.act(state.features(), eps=self.epsilon)
-			reward, next_state = mdp.execute_agent_action(action)
-			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
-			state = next_state
+
+			if step_before:
+				action = self.solver.act(state.features(), eps=self.epsilon)
+				reward, next_state = mdp.execute_agent_action(action)
+				self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+				state = next_state
+			else:
+				reward = 0.
 
 			while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal() and not state.is_out_of_frame():
 
