@@ -80,6 +80,7 @@ class Option(object):
 		self.epsilon = EPS_START
 
 		self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
+		self.solver.target_network.load_state_dict(self.global_solver.target_network.state_dict())
 
 		self.initiation_classifier = svm.SVC(kernel="rbf")
 
@@ -194,6 +195,7 @@ class Option(object):
 	def initialize_option_policy(self):
 		# Initialize the local DQN's policy with the weights of the global DQN
 		self.solver.policy_network.load_state_dict(self.global_solver.policy_network.state_dict())
+		self.solver.target_network.load_state_dict(self.global_solver.target_network.state_dict())
 
 		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
 		num_negative_examples = (5 * self.buffer_length) // 8
