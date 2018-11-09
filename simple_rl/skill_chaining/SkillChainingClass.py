@@ -78,15 +78,26 @@ class SkillChaining(object):
         return new_untrained_option
 
     def execute_trained_option_if_possible(self, state, in_evaluation_mode):
+        """
+        Cycle through the list of trained options and execute one.
+        Args:
+            state (State)
+            in_evaluation_mode (bool): False if we want to update DQNs with this call
+
+        Returns:
+            reward (float)
+            next_state (State)
+            experiences (deque): Queue of (s,a,r,s') tuples encountered while executing option
+        """
         # If s' is in the initiation set of ANY trained option, execute the option
         for trained_option in self.trained_options:  # type: Option
             if trained_option.is_init_true(state):
                 if in_evaluation_mode:
                     reward, next_state = trained_option.trained_option_execution(state, self.mdp)
-                    return reward, next_state
-                reward, next_state = trained_option.execute_option_in_mdp(state, self.mdp)
-                return reward, next_state
-        return 0., state
+                    return reward, next_state, deque([])
+                reward, next_state, experiences = trained_option.execute_option_in_mdp(state, self.mdp)
+                return reward, next_state, experiences
+        return 0., state, deque([])
 
     def skill_chaining(self, num_episodes=1200, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
@@ -134,14 +145,17 @@ class SkillChaining(object):
 
                     if untrained_option.num_goal_hits >= self.num_goal_hits_before_training:
                         untrained_option = self._train_untrained_option(untrained_option)
-
-                    reset_agent = True
+                    else:
+                        reset_agent = True
 
                 for trained_option in self.trained_options: # type: Option
                     if trained_option.is_term_true(next_state):
                         trained_option.update_trained_option_policy(experience_buffer)
 
-                option_reward, next_state = self.execute_trained_option_if_possible(next_state, in_evaluation_mode=False)
+                option_reward, next_state, option_experiences = self.execute_trained_option_if_possible(next_state, in_evaluation_mode=False)
+
+                for option_experience in option_experiences:
+                    experience_buffer.append(option_experience)
 
                 # Its possible that execute_trained_option_if_possible() got us to the goal state,
                 # in which case we still want to train its DQN using off-policy updates
@@ -192,6 +206,7 @@ class SkillChaining(object):
             plot_epsilon_history(option)
             plot_replay_buffer_size(option)
             plot_num_learning_updates(option)
+            plot_policy_refinement_data(option)
 
     def trained_forward_pass(self):
         """
@@ -204,14 +219,21 @@ class SkillChaining(object):
         overall_reward = 0.
         self.mdp.render = True
         while not state.is_terminal():
-            option_reward, next_state = self.execute_trained_option_if_possible(state, in_evaluation_mode=True)
+            option_reward, next_state, _ = self.execute_trained_option_if_possible(state, in_evaluation_mode=True)
             overall_reward += option_reward
+
+            # TODO: BUG: Cannot accumulate reward w/o checking terminal state otherwise we might get
+            # TODO: rewarded twice for hitting a good terminal state
             action = self.global_solver.act(next_state.features(), eps=0.)
             reward, next_state = self.mdp.execute_agent_action(action)
             overall_reward += reward
             state = next_state
         self.mdp.render = False
-        self.mdp.env.close()
+
+        # If it is a Gym environment, explicitly close it. RlPi domains don't need this
+        if hasattr(self.mdp, "env"):
+            self.mdp.env.close()
+
         return overall_reward
 
 def construct_lunar_lander_mdp():

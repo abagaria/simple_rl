@@ -206,7 +206,7 @@ class Option(object):
 
 	def update_trained_option_policy(self, experience_buffer):
 		"""
-		If we hit the initiation set of a trained option, we may want to update its policy.
+		If we hit the termination set of a trained option, we may want to update its policy.
 		Args:
 			experience_buffer (deque): (s, a, r, s')
 		"""
@@ -273,11 +273,9 @@ class Option(object):
 			self.num_indirect_updates.append(self.num_times_indirect_update)
 			# ---------------------------------------------------------------------------------
 
+			reward = 0.
 			self.times_executed_since_being_trained += 1
-			action = self.solver.act(state.features(), eps=self.epsilon)
-			reward, next_state = mdp.execute_agent_action(action)
-			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
-			state = next_state
+			experiences_during_execution = deque([], maxlen=self.buffer_length)
 
 			while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal() and not state.is_out_of_frame():
 
@@ -295,6 +293,7 @@ class Option(object):
 				self.global_solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
 
 				reward += r
+				experiences_during_execution.append((state, action, r, next_state))
 				state = next_state
 
 			# Epsilon decay
@@ -302,7 +301,7 @@ class Option(object):
 
 			self.ending_points.append(state)
 
-			return reward, state
+			return reward, state, experiences_during_execution
 
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 

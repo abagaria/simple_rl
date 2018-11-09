@@ -144,6 +144,18 @@ def plot_num_learning_updates(option):
     plt.savefig('{}_num_dqn_updates.png'.format(option.name))
     plt.close()
 
+def plot_policy_refinement_data(option):
+    refinement_data = [item for sublist in option.policy_refinement_data for item in sublist]
+    refinement_x = [state.x for state in refinement_data]
+    refinement_y = [state.y for state in refinement_data]
+    plt.figure()
+    plt.scatter(refinement_x, refinement_y)
+    plt.title('Policy refinement data for {}'.format(option.name))
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.savefig('{}_policy_refinement_data.png'.format(option.name))
+    plt.close()
+
 # Perform forward passes through the given DQN model
 # so that we can visually see how it is performing
 def render_dqn_policy(env, dqn_model, show_value_plot=False):
