@@ -82,11 +82,13 @@ class SkillChaining(object):
                                                                 buffer_length=self.buffer_length)
         return new_untrained_option
 
-    def execute_trained_option_if_possible(self, state):
+    def execute_trained_option_if_possible(self, state, in_evaluation_mode):
         # If s' is in the initiation set of ANY trained option, execute the option
         for trained_option in self.trained_options:  # type: Option
             if trained_option.is_init_true(state):
-                # print("Taking option {} from state {}\n".format(trained_option.name, state))
+                if in_evaluation_mode:
+                    reward, next_state = trained_option.trained_option_execution(state, self.mdp)
+                    return reward, next_state
                 reward, next_state = trained_option.execute_option_in_mdp(state, self.mdp)
                 return reward, next_state
         return 0., state
@@ -144,8 +146,7 @@ class SkillChaining(object):
                     if trained_option.is_term_true(next_state):
                         trained_option.update_trained_option_policy(experience_buffer)
 
-                # TODO: Think about the correct way to add this reward so as to not artificially increase the game score
-                option_reward, next_state = self.execute_trained_option_if_possible(next_state)
+                option_reward, next_state = self.execute_trained_option_if_possible(next_state, in_evaluation_mode=False)
 
                 # Its possible that execute_trained_option_if_possible() got us to the goal state,
                 # in which case we still want to train its DQN using off-policy updates
@@ -156,8 +157,6 @@ class SkillChaining(object):
                 state = next_state
 
                 # Reset the agent so that we don't keep moving around the initiation set of the trained option
-                # TODO: Won't have to use reset_agent to break if I always take an option when I enter its initiation set
-                # TODO: But what if that state has 2 options you can take from it?
                 if reset_agent or state.is_out_of_frame() or state.is_terminal():
                     break
 
@@ -210,7 +209,7 @@ class SkillChaining(object):
         overall_reward = 0.
         self.mdp.render = True
         while not state.is_terminal():
-            option_reward, next_state = self.execute_trained_option_if_possible(state)
+            option_reward, next_state = self.execute_trained_option_if_possible(state, in_evaluation_mode=True)
             overall_reward += option_reward
             action = self.global_solver.act(next_state.features(), eps=0.)
             reward, next_state = self.mdp.execute_agent_action(action)

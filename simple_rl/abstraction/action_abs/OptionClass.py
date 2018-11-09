@@ -325,6 +325,14 @@ class Option(object):
 
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 
+	def trained_option_execution(self, state, mdp):
+		score = 0.
+		while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal() and not state.is_out_of_frame():
+			action = self.solver.act(state.features(), eps=0.)
+			reward, state = mdp.execute_agent_action(action)
+			score += reward
+		return score, state
+
 	def policy_from_dict(self, state):
 		if state not in self.policy_dict.keys():
 			self.term_flag = True
