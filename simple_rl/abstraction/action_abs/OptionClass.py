@@ -87,7 +87,6 @@ class Option(object):
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
 		self.initiation_data = np.empty((buffer_length, 10), dtype=State)
 		self.experience_buffer = np.empty((buffer_length, 10), dtype=Experience)
-		self.new_experience_buffer = deque([], maxlen=50)
 
 		self.overall_mdp = overall_mdp
 		self.num_goal_hits = 0
@@ -204,24 +203,6 @@ class Option(object):
 			for experience in experience_buffer:
 				state, a, r, s_prime = experience.serialize()
 				self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
-
-	def _learn_policy_from_new_experiences(self):
-		experience_buffer = self.new_experience_buffer
-		for _ in range(2):
-			for experience in experience_buffer:
-				state, a, r, s_prime = experience
-				self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
-
-	def expand_experience_buffer(self, experience):
-		"""
-		After an Option is trained, you may still enter its Initiation set. If this happens more than N
-		times, then we should use that experience to update the current option's policy. This method expands
-		the experience buffer of the current option every time the agent walks into its initiation set post
-		initial training.
-		Args:
-			experience (tuple): (state, action, reward, next_state)
-		"""
-		self.new_experience_buffer.append(experience)
 
 	def update_trained_option_policy(self, experience_buffer):
 		"""
@@ -343,29 +324,3 @@ class Option(object):
 
 	def term_func_from_list(self, state):
 		return state in self.term_list
-
-	# --------------------------------------
-	# Debug methods
-	# --------------------------------------
-	def get_initiation_set(self):
-		state_space = self.overall_mdp.get_discretized_positional_state_space()
-		return [(state.x, state.y) for state in state_space if self.is_init_true(state)]
-
-	@staticmethod
-	def plot_x_y_points_on_image(x_grid, y_grid, image_path="/Users/akhil/Desktop/LunarLanderImage.png"):
-		plt.figure()
-		im = plt.imread(image_path)
-		_ = plt.imshow(im)
-		x_image, y_image = Option.pos_array_to_image_array(x_grid, y_grid)
-		plt.plot(x_image, y_image, marker='.', color='r', linestyle='none')
-		plt.show()
-
-	@staticmethod
-	def pos_array_to_image_array(x_grid, y_grid):
-		x_scale = lambda x: 600 * (x + 1)
-		y_scale = lambda y: 800 * y
-		x_func = np.vectorize(x_scale)
-		y_func = np.vectorize(y_scale)
-		x_image = x_func(x_grid)
-		y_image = y_func(y_grid)
-		return x_image, y_image

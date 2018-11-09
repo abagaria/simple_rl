@@ -6,12 +6,8 @@ sys.path = [""] + sys.path
 
 import matplotlib
 matplotlib.use('TkAgg')
-import matplotlib.pyplot as plt
-import numpy as np
-import pdb
 from collections import deque
 from copy import deepcopy
-import _pickle as pickle
 import torch
 import time
 
@@ -19,7 +15,6 @@ import time
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
-from simple_rl.tasks import GymMDP, GridWorldMDP
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 from simple_rl.skill_chaining.skill_chaining_utils import *
 from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
@@ -219,31 +214,9 @@ class SkillChaining(object):
         self.mdp.env.close()
         return overall_reward
 
-
-def construct_pendulum_domain():
-    # Overall goal predicate in the Pendulum domain
-    target_cos_theta, cos_theta_tol = 1., 0.001
-    predicate = Predicate(lambda s: (abs(s[0] - target_cos_theta) < cos_theta_tol))
-
-    # Pendulum domain parameters
-    max_torque = 2.
-
-    # Construct GymMDP wrapping around Gym's Pendulum MDP
-    discretized_actions = np.arange(-max_torque, max_torque + 0.1, 0.1)
-    return GymMDP(discretized_actions, subgoal_predicate=predicate, env_name='Pendulum-v0', render=True)
-
-def construct_grid_world_mdp():
-    predicate = Predicate(func=lambda s: s.x == 10 and s.y == 10, name='OverallOption_GoalPredicate')
-    return GridWorldMDP(10, 10, goal_predicate=predicate, slip_prob=0.2)
-
 def construct_lunar_lander_mdp():
     predicate = LunarLanderMDP.default_goal_predicate()
     return LunarLanderMDP(goal_predicate=predicate, render=False)
-
-def construct_positional_lunar_lander_mdp():
-    from simple_rl.tasks.lunar_lander.PositionalLunarLanderMDPClass import PositionalLunarLanderMDP
-    predicate = PositionalLunarLanderMDP.default_goal_predicate()
-    return PositionalLunarLanderMDP(goal_predicate=predicate, render=False)
 
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()
