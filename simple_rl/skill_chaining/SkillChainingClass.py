@@ -197,11 +197,6 @@ class SkillChaining(object):
         if episode % 100 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
 
-        if np.mean(last_100_scores) >= 200.0:
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
-                                                                                         np.mean(last_100_scores)))
-            return True
-
         return False
 
     def save_all_dqns(self):
@@ -254,9 +249,15 @@ class SkillChaining(object):
 
         return overall_reward
 
+
 def construct_lunar_lander_mdp():
     predicate = LunarLanderMDP.default_goal_predicate()
     return LunarLanderMDP(goal_predicate=predicate, render=False)
+
+def construct_pinball_mdp():
+    from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
+    mdp = PinballMDP(noise=0., episode_length=1000, render=False)
+    return mdp
 
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()

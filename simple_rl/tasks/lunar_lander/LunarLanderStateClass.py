@@ -3,6 +3,7 @@ from __future__ import print_function
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
+from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
 
 class LunarLanderState(State):
     def __init__(self, x, y, xdot, ydot, theta, theta_dot, left_leg_on_ground, right_leg_on_ground, is_terminal=False):
@@ -17,6 +18,12 @@ class LunarLanderState(State):
 
         State.__init__(self, data=[x, y, xdot, ydot, theta, theta_dot, left_leg_on_ground, right_leg_on_ground],
                        is_terminal=is_terminal)
+
+    def state_space_size(self):
+        return len(self.data)
+
+    def convert_to_positional_state(self):
+        return PositionalLunarLanderState(self.x, self.y, self.is_terminal())
 
     def __hash__(self):
         return hash(tuple(self.data))

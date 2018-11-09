@@ -116,7 +116,7 @@ def sample_termination_set_classifier(option):
     plt.close()
 
 def visualize_option_policy(option):
-    colors = ("red", "green", "blue", "yellow")
+    colors = ("red", "green", "blue", "yellow", "cyan")
     # option.experience_buffer is a matrix with 10 columns representing the 10 times the option's
     # goal was encountered. Reshape as a column vector of Experience objects
     experience_buffer = option.experience_buffer.reshape(-1)
