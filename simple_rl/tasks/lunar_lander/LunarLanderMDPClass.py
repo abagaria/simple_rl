@@ -1,6 +1,6 @@
 # Python imports.
 from __future__ import print_function
-import pdb
+import copy
 
 # Other imports.
 import gym
@@ -60,7 +60,11 @@ class LunarLanderMDP(MDP):
                          )
 
     def reset(self):
-        self.env.reset()
+        init_observation = self.env.reset()
+        init_state = tuple(init_observation)
+        self.init_state = copy.deepcopy(LunarLanderState(*init_state))
+        
+        super(LunarLanderMDP, self).reset()
 
     def __str__(self):
         return "gym-" + str(self.env_name)
