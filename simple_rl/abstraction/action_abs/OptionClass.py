@@ -12,7 +12,7 @@ from simple_rl.mdp.StateClass import State
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
-from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
+from simple_rl.tasks.pinball.PinballStateClass import PinballState
 from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_END
 
 EPS_DECAY = 0.998
@@ -75,7 +75,7 @@ class Option(object):
 		else:
 			self.policy = policy
 
-		self.solver = DQNAgent(overall_mdp.env.observation_space.shape[0], overall_mdp.env.action_space.n, 0, name=name)
+		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), 0, name=name)
 		self.global_solver = global_solver
 		self.epsilon = EPS_START
 
@@ -121,14 +121,14 @@ class Option(object):
 		return not self == other
 
 	def is_init_true(self, ground_state):
-		if isinstance(ground_state, LunarLanderState):
-			positional_state = PositionalLunarLanderState(ground_state.x, ground_state.y, ground_state.is_terminal())
+		if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
+			positional_state = ground_state.convert_to_positional_state()
 			return self.init_predicate.is_true(positional_state)
 		return self.init_predicate.is_true(ground_state)
 
 	def is_term_true(self, ground_state):
-		if isinstance(ground_state, LunarLanderState):
-			positional_state = PositionalLunarLanderState(ground_state.x, ground_state.y, ground_state.is_terminal())
+		if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
+			positional_state = ground_state.convert_to_positional_state()
 			return self.term_predicate.is_true(positional_state)
 		return self.term_predicate.is_true(ground_state) # or self.term_flag or self.term_prob > random.random()
 
@@ -151,7 +151,7 @@ class Option(object):
 		states = list(states_queue)
 
 		# Convert the high dimensional states to positional states for ease of learning the initiation classifier
-		positional_states = [PositionalLunarLanderState(state.x, state.y, state.is_terminal()) for state in states]
+		positional_states = [state.convert_to_positional_state() for state in states]
 		self.initiation_data[:, self.num_goal_hits-1] = np.asarray(positional_states)
 
 	def add_experience_buffer(self, experience_queue):

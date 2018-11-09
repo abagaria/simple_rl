@@ -13,6 +13,12 @@ class PinballState(State):
 
         State.__init__(self, data=[x, y, xdot, ydot], is_terminal=is_terminal)
 
+    def convert_to_positional_state(self):
+        return PositionalPinballState(self.x, self.y, self.is_terminal())
+
+    def state_space_size(self):
+        return len(self.data)
+
     def __hash__(self):
         return hash(tuple(self.data))
 
@@ -28,6 +34,8 @@ class PinballState(State):
     def __ne__(self, other):
         return not self == other
 
+    def is_out_of_frame(self):
+        return False
 
 class PositionalPinballState(State):
     def __init__(self, x, y, is_terminal=False):

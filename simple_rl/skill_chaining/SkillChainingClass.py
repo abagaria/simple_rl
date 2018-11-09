@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.skill_chaining_utils import *
 from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=1000.0, subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -128,7 +128,7 @@ class SkillChaining(object):
                 state_buffer.append(state)
                 score += reward
 
-                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and len(self.trained_options) < 3:
+                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and len(self.trained_options) < 5:
                     # If we hit a subgoal, modify the last experience to reflect the augmented reward
                     if untrained_option != goal_option:
                         experience_buffer[-1] = (state, action, reward + self.subgoal_reward, next_state)
@@ -180,11 +180,11 @@ class SkillChaining(object):
         if episode % 100 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
 
-        if np.mean(last_100_scores) >= 200.0:
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
-                                                                                         np.mean(last_100_scores)))
-            torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
-            return True
+        # if np.mean(last_100_scores) >= 200.0:
+        #     print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
+        #                                                                                  np.mean(last_100_scores)))
+        #     torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
+        #     return True
 
         return False
 
@@ -219,37 +219,21 @@ class SkillChaining(object):
         self.mdp.env.close()
         return overall_reward
 
-
-def construct_pendulum_domain():
-    # Overall goal predicate in the Pendulum domain
-    target_cos_theta, cos_theta_tol = 1., 0.001
-    predicate = Predicate(lambda s: (abs(s[0] - target_cos_theta) < cos_theta_tol))
-
-    # Pendulum domain parameters
-    max_torque = 2.
-
-    # Construct GymMDP wrapping around Gym's Pendulum MDP
-    discretized_actions = np.arange(-max_torque, max_torque + 0.1, 0.1)
-    return GymMDP(discretized_actions, subgoal_predicate=predicate, env_name='Pendulum-v0', render=True)
-
-def construct_grid_world_mdp():
-    predicate = Predicate(func=lambda s: s.x == 10 and s.y == 10, name='OverallOption_GoalPredicate')
-    return GridWorldMDP(10, 10, goal_predicate=predicate, slip_prob=0.2)
-
 def construct_lunar_lander_mdp():
     predicate = LunarLanderMDP.default_goal_predicate()
     return LunarLanderMDP(goal_predicate=predicate, render=False)
 
-def construct_positional_lunar_lander_mdp():
-    from simple_rl.tasks.lunar_lander.PositionalLunarLanderMDPClass import PositionalLunarLanderMDP
-    predicate = PositionalLunarLanderMDP.default_goal_predicate()
-    return PositionalLunarLanderMDP(goal_predicate=predicate, render=False)
+def construct_pinball_mdp():
+    from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
+    mdp = PinballMDP(noise=0., episode_length=1000, render=False)
+    return mdp
 
 if __name__ == '__main__':
-    overall_mdp = construct_lunar_lander_mdp()
-    environment = overall_mdp.env
-    # environment.seed(0) TODO: Set this seed so that we can compare between runs
-    solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
-    chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
+    overall_mdp = construct_pinball_mdp()
+    # environment = overall_mdp.env
+    # # environment.seed(0) TODO: Set this seed so that we can compare between runs
+    # solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
+    solver = DQNAgent(overall_mdp.domain.state_space_dims, overall_mdp.domain.actions_num, 0)
+    chainer = SkillChaining(overall_mdp, overall_mdp.default_goal_predicate(), rl_agent=solver)
     episodic_scores = chainer.skill_chaining()
     chainer.perform_experiments()
