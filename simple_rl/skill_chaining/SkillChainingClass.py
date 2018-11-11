@@ -219,18 +219,21 @@ class SkillChaining(object):
         overall_reward = 0.
         self.mdp.render = True
         while not state.is_terminal():
+
+            # If possible, take an option
             option_reward, next_state, _ = self.execute_trained_option_if_possible(state, in_evaluation_mode=True)
             overall_reward += option_reward
 
-            # TODO: BUG: Cannot accumulate reward w/o checking terminal state otherwise we might get
-            # TODO: rewarded twice for hitting a good terminal state
-            action = self.global_solver.act(next_state.features(), eps=0.)
-            reward, next_state = self.mdp.execute_agent_action(action)
-            overall_reward += reward
+            # If we did not take an option, take a primitive action
+            if next_state == state:
+                action = self.global_solver.act(next_state.features(), eps=0.)
+                reward, next_state = self.mdp.execute_agent_action(action)
+                overall_reward += reward
+
             state = next_state
         self.mdp.render = False
 
-        # If it is a Gym environment, explicitly close it. RlPi domains don't need this
+        # If it is a Gym environment, explicitly close it. RlPy domains don't need this
         if hasattr(self.mdp, "env"):
             self.mdp.env.close()
 
