@@ -10,6 +10,7 @@ from collections import deque
 from copy import deepcopy
 import torch
 import time
+import pdb
 
 # Other imports.
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
@@ -49,7 +50,7 @@ class SkillChaining(object):
         Returns:
             new_untrained_option (Option)
         """
-        print("Training the initiation set and policy for {}.".format(untrained_option.name))
+        print("\nTraining the initiation set and policy for {}.".format(untrained_option.name))
         # Train the initiation set classifier for the option
         untrained_option.train_initiation_classifier()
 
@@ -77,6 +78,13 @@ class SkillChaining(object):
                                                                 buffer_length=self.buffer_length)
         return new_untrained_option
 
+    def _derive_state_buffer(self, experience_buffer):
+        input_buffer = deepcopy(experience_buffer)
+        state_buffer = deque([], maxlen=self.buffer_length)
+        for experience in input_buffer:
+            state_buffer.append(experience[0])
+        return state_buffer
+
     def execute_trained_option_if_possible(self, state, in_evaluation_mode):
         """
         Cycle through the list of trained options and execute one.
@@ -99,6 +107,34 @@ class SkillChaining(object):
                 return reward, next_state, experiences
         return 0., state, deque([])
 
+    def take_action(self, state, experience_buffer, global_solver_epsilon):
+        """
+        Skill Chaining agent will take an option if possible, else it will take an atomic action.
+        Args:
+            state (State)
+            experience_buffer (deque)
+            global_solver_epsilon (float)
+
+        Returns:
+            modified_experience_buffer (deque): Modified version of input buffer with new (s,a,r,s') tuples appended
+            reward (float): overall reward executed either from option execution or from taking primitive action
+            next_state (State): state we landed in after either executing an option or a primitive action
+        """
+        modified_experience_buffer = deepcopy(experience_buffer)
+        option_reward, next_state, option_experiences = self.execute_trained_option_if_possible(state, False)
+
+        if state == next_state or len(option_experiences) == 0:
+            action = self.global_solver.act(state.features(), global_solver_epsilon)
+            reward, next_state = self.mdp.execute_agent_action(action)
+            self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+            experience = state, action, reward, next_state
+            modified_experience_buffer.append(experience)
+            return modified_experience_buffer, reward, next_state
+
+        for option_experience in option_experiences:
+            modified_experience_buffer.append(option_experience)
+        return modified_experience_buffer, option_reward, next_state
+
     def skill_chaining(self, num_episodes=1200, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
@@ -119,26 +155,16 @@ class SkillChaining(object):
         for episode in range(num_episodes):
 
             self.mdp.reset()
-            reward, score, reset_agent = 0, 0, False
+            score, reset_agent = 0, False
             state = deepcopy(self.mdp.init_state)
             experience_buffer = deque([], maxlen=self.buffer_length)
-            state_buffer = deque([], maxlen=self.buffer_length)
 
             for _ in range(num_steps):
-                action = self.global_solver.act(state.features(), epsilon)
-                reward, next_state = self.mdp.execute_agent_action(action)
-                self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
-
-                experience = state, action, reward, next_state
-                experience_buffer.append(experience)
-                state_buffer.append(state)
+                experience_buffer, reward, next_state = self.take_action(state, experience_buffer, epsilon)
+                state_buffer = self._derive_state_buffer(experience_buffer)
                 score += reward
 
-                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and len(self.trained_options) < 3:
-                    # If we hit a subgoal, modify the last experience to reflect the augmented reward
-                    if untrained_option != goal_option:
-                        experience_buffer[-1] = (state, action, reward + self.subgoal_reward, next_state)
-
+                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and len(self.trained_options) < 2:
                     untrained_option.num_goal_hits += 1
                     untrained_option.add_initiation_experience(state_buffer)
                     untrained_option.add_experience_buffer(experience_buffer)
@@ -146,23 +172,15 @@ class SkillChaining(object):
                     if untrained_option.num_goal_hits >= self.num_goal_hits_before_training:
                         untrained_option = self._train_untrained_option(untrained_option)
                     else:
+                        # TODO: Need to get rid of this reset_agent stuff
                         reset_agent = True
 
                 for trained_option in self.trained_options: # type: Option
                     if trained_option.is_term_true(next_state):
+                        # TODO: If I break after this update, o2 will be updated in the correct region
                         trained_option.update_trained_option_policy(experience_buffer)
+                        break
 
-                option_reward, next_state, option_experiences = self.execute_trained_option_if_possible(next_state, in_evaluation_mode=False)
-
-                for option_experience in option_experiences:
-                    experience_buffer.append(option_experience)
-
-                # Its possible that execute_trained_option_if_possible() got us to the goal state,
-                # in which case we still want to train its DQN using off-policy updates
-                if goal_option.is_term_true(next_state):
-                    goal_option.update_trained_option_policy(experience_buffer)
-
-                score += option_reward
                 state = next_state
 
                 # Reset the agent so that we don't keep moving around the initiation set of the trained option

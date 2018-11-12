@@ -92,6 +92,8 @@ class Option(object):
 		self.num_goal_hits = 0
 		self.times_executed_since_being_trained = 0
 
+		self.num_negative_examples = (3 * self.buffer_length) // 8
+
 		# Debug member variables
 		self.starting_points = []
 		self.ending_points 	 = []
@@ -174,7 +176,7 @@ class Option(object):
 		return X
 
 	def _split_experience_into_pos_neg_examples(self):
-		num_negative_examples = (5 * self.buffer_length) // 8
+		num_negative_examples = self.num_negative_examples
 		negative_experiences = self.initiation_data[:num_negative_examples, :] # 1st 25 states are negative examples
 		positive_experiences = self.initiation_data[num_negative_examples:, :] # Last 15 states are positive examples
 		return positive_experiences, negative_experiences
@@ -197,7 +199,7 @@ class Option(object):
 		self.solver.target_network.load_state_dict(self.global_solver.target_network.state_dict())
 
 		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
-		num_negative_examples = (5 * self.buffer_length) // 8
+		num_negative_examples = self.num_negative_examples
 		experience_buffer = self.experience_buffer[num_negative_examples:, :].reshape(-1)
 		for _ in range(2):
 			for experience in experience_buffer:
@@ -211,7 +213,7 @@ class Option(object):
 			experience_buffer (deque): (s, a, r, s')
 		"""
 		self.num_times_indirect_update += 1
-		positive_experiences = list(experience_buffer)[-15:]
+		positive_experiences = list(experience_buffer)[-self.num_negative_examples:]
 		positive_states = [positive_experience[0] for positive_experience in positive_experiences]
 		self.policy_refinement_data.append(positive_states)
 		for experience in positive_experiences:
