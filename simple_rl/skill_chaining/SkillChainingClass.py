@@ -13,12 +13,17 @@ import time
 import pdb
 
 # Other imports.
+from simple_rl.mdp.StateClass import State
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 from simple_rl.skill_chaining.skill_chaining_utils import *
-from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_DECAY, EPS_END
+from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_END
+
+EPS_EXPONENTIAL_DECAY = 0.98
+EPS_LINEAR_DECAY_LENGTH = 10000
+EPS_LINEAR_DECAY = (EPS_START - EPS_END) / EPS_LINEAR_DECAY_LENGTH
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
@@ -38,6 +43,9 @@ class SkillChaining(object):
         self.buffer_length = buffer_length
         self.subgoal_reward = subgoal_reward
         self.num_goal_hits_before_training = subgoal_hits
+
+        self.times_executed_since_being_trained = 0
+        self.epsilon = EPS_START
 
         self.trained_options = []
 
@@ -78,13 +86,6 @@ class SkillChaining(object):
                                                                 buffer_length=self.buffer_length)
         return new_untrained_option
 
-    def _derive_state_buffer(self, experience_buffer):
-        input_buffer = deepcopy(experience_buffer)
-        state_buffer = deque([], maxlen=self.buffer_length)
-        for experience in input_buffer:
-            state_buffer.append(experience[0])
-        return state_buffer
-
     def execute_trained_option_if_possible(self, state, in_evaluation_mode):
         """
         Cycle through the list of trained options and execute one.
@@ -107,33 +108,50 @@ class SkillChaining(object):
                 return reward, next_state, experiences
         return 0., state, deque([])
 
-    def take_action(self, state, experience_buffer, global_solver_epsilon):
+    def update_epsilon(self):
+        if self.times_executed_since_being_trained < EPS_LINEAR_DECAY_LENGTH:
+            self.epsilon -= EPS_LINEAR_DECAY
+        else:
+            self.epsilon = max(EPS_END, EPS_EXPONENTIAL_DECAY * self.epsilon)
+
+    def take_action(self, state, current_option):
         """
-        Skill Chaining agent will take an option if possible, else it will take an atomic action.
+
         Args:
             state (State)
-            experience_buffer (deque)
-            global_solver_epsilon (float)
+            current_option (Option)
 
         Returns:
-            modified_experience_buffer (deque): Modified version of input buffer with new (s,a,r,s') tuples appended
-            reward (float): overall reward executed either from option execution or from taking primitive action
-            next_state (State): state we landed in after either executing an option or a primitive action
+            experience (tuple): (s, a, r, s')
         """
-        modified_experience_buffer = deepcopy(experience_buffer)
-        option_reward, next_state, option_experiences = self.execute_trained_option_if_possible(state, False)
+        if current_option:
+            action, reward, next_state = current_option.execute_option_in_mdp(state, self.mdp)
+            # Since we perform off-policy update on the global DQN, we decay its epsilon
+            self.update_epsilon()
+            return state, action, reward, next_state
 
-        if state == next_state or len(option_experiences) == 0:
-            action = self.global_solver.act(state.features(), global_solver_epsilon)
-            reward, next_state = self.mdp.execute_agent_action(action)
-            self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
-            experience = state, action, reward, next_state
-            modified_experience_buffer.append(experience)
-            return modified_experience_buffer, reward, next_state
+        self.times_executed_since_being_trained += 1
+        action = self.global_solver.act(state.features(), self.epsilon)
+        reward, next_state = self.mdp.execute_agent_action(action)
+        self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+        self.update_epsilon()
+        return state, action, reward, next_state
 
-        for option_experience in option_experiences:
-            modified_experience_buffer.append(option_experience)
-        return modified_experience_buffer, option_reward, next_state
+    def find_option_for_state(self, state):
+        for option in self.trained_options:
+            if option.is_init_true(state):
+                return option
+        return None
+
+    @staticmethod
+    def get_next_state_from_experience(experience):
+        assert isinstance(experience[-1], State), "Expected last element to be next_state, got {}".format(experience[-1])
+        return experience[-1]
+
+    @staticmethod
+    def get_reward_from_experience(experience):
+        assert isinstance(experience[2], float) or isinstance(experience[2], int), "Expected 3rd element to be reward (float), got {}".format(experience[2])
+        return float(experience[2])
 
     def skill_chaining(self, num_episodes=1200, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
@@ -150,48 +168,46 @@ class SkillChaining(object):
         # For logging purposes
         per_episode_scores = []
         last_100_scores = deque(maxlen=100)
-        epsilon = EPS_START
 
         for episode in range(num_episodes):
 
             self.mdp.reset()
-            score, reset_agent = 0, False
+            score = 0.
+            uo_episode_terminated = False
             state = deepcopy(self.mdp.init_state)
             experience_buffer = deque([], maxlen=self.buffer_length)
+            state_buffer = deque([], maxlen=self.buffer_length)
 
             for _ in range(num_steps):
-                experience_buffer, reward, next_state = self.take_action(state, experience_buffer, epsilon)
-                state_buffer = self._derive_state_buffer(experience_buffer)
-                score += reward
+                current_option = self.find_option_for_state(state) # type: Option
+                experience = self.take_action(state, current_option) # TODO: Determine legit option_eps
 
-                if untrained_option.is_term_true(next_state) and len(experience_buffer) == self.buffer_length and len(self.trained_options) < 2:
+                experience_buffer.append(experience)
+                state_buffer.append(state)
+
+                # Update current_state = next_state
+                state = self.get_next_state_from_experience(experience)
+                score += self.get_reward_from_experience(experience)
+
+                if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 3:
+                    uo_episode_terminated = True
                     untrained_option.num_goal_hits += 1
                     untrained_option.add_initiation_experience(state_buffer)
                     untrained_option.add_experience_buffer(experience_buffer)
 
                     if untrained_option.num_goal_hits >= self.num_goal_hits_before_training:
                         untrained_option = self._train_untrained_option(untrained_option)
-                    else:
-                        # TODO: Need to get rid of this reset_agent stuff
-                        reset_agent = True
 
-                for trained_option in self.trained_options: # type: Option
-                    if trained_option.is_term_true(next_state):
-                        # TODO: If I break after this update, o2 will be updated in the correct region
-                        trained_option.update_trained_option_policy(experience_buffer)
-                        break
+                # for trained_option in self.trained_options:  # type: Option
+                #     if trained_option.is_term_true(state):
+                #         trained_option.update_trained_option_policy(experience_buffer)
+                #         break
 
-                state = next_state
-
-                # Reset the agent so that we don't keep moving around the initiation set of the trained option
-                if reset_agent or state.is_out_of_frame() or state.is_terminal():
+                if state.is_out_of_frame() or state.is_terminal():
                     break
 
             last_100_scores.append(score)
             per_episode_scores.append(score)
-
-            # Decay epsilon
-            epsilon = max(EPS_END, EPS_DECAY*epsilon)
 
             if self._log_dqn_status(episode, last_100_scores):
                 break
@@ -207,11 +223,11 @@ class SkillChaining(object):
         if episode % 100 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
 
-        if np.mean(last_100_scores) >= 200.0:
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
-                                                                                         np.mean(last_100_scores)))
-            torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
-            return True
+        # if np.mean(last_100_scores) >= 200.0:
+        #     print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
+        #                                                                                  np.mean(last_100_scores)))
+        #     torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
+        #     return True
 
         return False
 

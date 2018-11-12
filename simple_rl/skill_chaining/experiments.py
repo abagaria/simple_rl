@@ -72,5 +72,5 @@ class SkillChainingExperiments(object):
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()
     experiments = SkillChainingExperiments(overall_mdp)
-    # experiments.compare_agents()
-    subgoal_scores = experiments.compare_hyperparameter_subgoal_reward()
+    experiments.compare_agents()
+    # subgoal_scores = experiments.compare_hyperparameter_subgoal_reward()

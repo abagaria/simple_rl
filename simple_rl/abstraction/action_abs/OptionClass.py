@@ -15,8 +15,9 @@ from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
 from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
 from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_END
 
-EPS_DECAY = 0.998
-GESTATION_PERIOD = 20 # episodes
+EPS_EXPONENTIAL_DECAY = 0.98
+EPS_LINEAR_DECAY_LENGTH = 10000
+EPS_LINEAR_DECAY = (EPS_START - EPS_END) / EPS_LINEAR_DECAY_LENGTH
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -275,37 +276,27 @@ class Option(object):
 			self.num_indirect_updates.append(self.num_times_indirect_update)
 			# ---------------------------------------------------------------------------------
 
-			reward = 0.
 			self.times_executed_since_being_trained += 1
-			experiences_during_execution = deque([], maxlen=self.buffer_length)
 
-			while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal() and not state.is_out_of_frame():
-
-				# Perform off-policy updates on the option's DQN during the option's gestation period
-				if self.times_executed_since_being_trained >= GESTATION_PERIOD:
-					action = self.solver.act(state.features(), eps=self.epsilon)
-				else:
-					action = self.global_solver.act(state.features(), eps=self.epsilon)
-
-				r, next_state = mdp.execute_agent_action(action)
-				self.solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
-
-				# The global DQN is updated at each time step, even if an option is being executed
-				# i.e, making off-policy updates to the global solver when we are executing an option
-				self.global_solver.step(state.features(), action, r, next_state.features(), next_state.is_terminal())
-
-				reward += r
-				experiences_during_execution.append((state, action, r, next_state))
-				state = next_state
+			action = self.solver.act(state.features(), self.epsilon)
+			reward, next_state = mdp.execute_agent_action(action)
+			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+			self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 			# Epsilon decay
-			self.epsilon = max(EPS_END, EPS_DECAY*self.epsilon)
+			self.update_epsilon()
 
 			self.ending_points.append(state)
 
-			return reward, state, experiences_during_execution
+			return action, reward, next_state
 
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
+
+	def update_epsilon(self):
+		if self.times_executed_since_being_trained < EPS_LINEAR_DECAY_LENGTH:
+			self.epsilon -= EPS_LINEAR_DECAY
+		else:
+			self.epsilon = max(EPS_END, EPS_EXPONENTIAL_DECAY * self.epsilon)
 
 	def trained_option_execution(self, state, mdp):
 		score = 0.
