@@ -13,11 +13,6 @@ from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
 from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
-from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_END
-
-EPS_EXPONENTIAL_DECAY = 0.98
-EPS_LINEAR_DECAY_LENGTH = 10000
-EPS_LINEAR_DECAY = (EPS_START - EPS_END) / EPS_LINEAR_DECAY_LENGTH
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -78,7 +73,6 @@ class Option(object):
 
 		self.solver = DQNAgent(overall_mdp.env.observation_space.shape[0], overall_mdp.env.action_space.n, 0, name=name)
 		self.global_solver = global_solver
-		self.epsilon = EPS_START
 
 		self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
 		self.solver.target_network.load_state_dict(self.global_solver.target_network.state_dict())
@@ -91,14 +85,12 @@ class Option(object):
 
 		self.overall_mdp = overall_mdp
 		self.num_goal_hits = 0
-		self.times_executed_since_being_trained = 0
 
-		self.num_negative_examples = (3 * self.buffer_length) // 8
+		self.num_negative_examples = (3 * self.buffer_length) // 4
 
 		# Debug member variables
 		self.starting_points = []
 		self.ending_points 	 = []
-		self.epsilon_history = []
 		self.num_states_in_replay_buffer = []
 		self.num_learning_updates_dqn = []
 		self.num_times_indirect_update = 0
@@ -202,10 +194,9 @@ class Option(object):
 		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
 		num_negative_examples = self.num_negative_examples
 		experience_buffer = self.experience_buffer[num_negative_examples:, :].reshape(-1)
-		for _ in range(2):
-			for experience in experience_buffer:
-				state, a, r, s_prime = experience.serialize()
-				self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
+		for experience in experience_buffer:
+			state, a, r, s_prime = experience.serialize()
+			self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
 
 	def update_trained_option_policy(self, experience_buffer):
 		"""
@@ -270,33 +261,25 @@ class Option(object):
 
 			# ------------------ Debug logging for option's policy learning ------------------
 			self.starting_points.append(state)
-			self.epsilon_history.append(self.epsilon)
 			self.num_states_in_replay_buffer.append(len(self.solver.replay_buffer))
 			self.num_learning_updates_dqn.append(self.solver.num_updates)
 			self.num_indirect_updates.append(self.num_times_indirect_update)
 			# ---------------------------------------------------------------------------------
 
-			self.times_executed_since_being_trained += 1
-
-			action = self.solver.act(state.features(), self.epsilon)
+			action = self.solver.act(state.features(), self.solver.epsilon)
 			reward, next_state = mdp.execute_agent_action(action)
 			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 			self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 			# Epsilon decay
-			self.update_epsilon()
+			self.solver.update_epsilon()
+			self.global_solver.update_epsilon()
 
 			self.ending_points.append(state)
 
 			return action, reward, next_state
 
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
-
-	def update_epsilon(self):
-		if self.times_executed_since_being_trained < EPS_LINEAR_DECAY_LENGTH:
-			self.epsilon -= EPS_LINEAR_DECAY
-		else:
-			self.epsilon = max(EPS_END, EPS_EXPONENTIAL_DECAY * self.epsilon)
 
 	def trained_option_execution(self, state, mdp):
 		score = 0.

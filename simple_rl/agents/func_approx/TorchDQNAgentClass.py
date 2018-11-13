@@ -19,12 +19,16 @@ BATCH_SIZE = 64  # minibatch size
 GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
 LR = 5e-4  # learning rate
-UPDATE_EVERY = 4  # how often to update the network
+UPDATE_EVERY = 1  # how often to update the network
 NUM_EPISODES = 2000
 NUM_STEPS = 1000
+
 EPS_START = 1.0
 EPS_END = 0.01
-EPS_DECAY = 0.995
+EPS_EXPONENTIAL_DECAY = 0.995
+EPS_LINEAR_DECAY_LENGTH = 10000
+EPS_LINEAR_DECAY = (EPS_START - EPS_END) / EPS_LINEAR_DECAY_LENGTH
+
 RANDOM_SEED = 0
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -80,6 +84,10 @@ class DQNAgent(Agent):
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
 
+        # Epsilon strategy
+        self.epsilon = EPS_START
+        self.num_executions = 0 # Number of times act() is called (used for eps-decay)
+
         # Debugging attributes
         self.num_updates = 0
 
@@ -95,6 +103,8 @@ class DQNAgent(Agent):
         Returns:
             action (int): integer representing the action to take in the Gym env
         """
+        self.num_executions += 1
+
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
         self.policy_network.eval()
         with torch.no_grad():
@@ -102,7 +112,7 @@ class DQNAgent(Agent):
         self.policy_network.train()
 
         # Epsilon-greedy action selection
-        if random.random() > eps:
+        if random.random() > self.epsilon:
             return np.argmax(action_values.cpu().data.numpy())
         return random.choice(np.arange(self.action_size))
 
@@ -177,6 +187,11 @@ class DQNAgent(Agent):
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
+    def update_epsilon(self):
+        if self.num_executions < EPS_LINEAR_DECAY_LENGTH:
+            self.epsilon -= EPS_LINEAR_DECAY
+        else:
+            self.epsilon = max(EPS_END, EPS_EXPONENTIAL_DECAY * self.epsilon)
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
@@ -225,26 +240,24 @@ class ReplayBuffer:
         """Return the current size of internal memory."""
         return len(self.memory)
 
-def train(agent, env, episodes, steps, epsilon_start, epsilon_end, epsilon_decay):
+def train(agent, env, episodes, steps):
     per_episode_scores = []
     last_100_scores = deque(maxlen=100)
-    epsilon = epsilon_start
+
     for episode in range(episodes):
         state = env.reset()
         score = 0.
         for step in range(steps):
-            action = agent.act(state, epsilon)
+            action = agent.act(state, agent.epsilon)
             next_state, reward, done, _ = env.step(action)
             agent.step(state, action, reward, next_state, done)
+            agent.update_epsilon()
             state = next_state
             score += reward
             if done:
                 break
         last_100_scores.append(score)
         per_episode_scores.append(score)
-
-        # Decay eps
-        epsilon = max(epsilon_end, epsilon_decay*epsilon)
 
         print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)), end="")
         if episode % 100 == 0:
@@ -278,7 +291,7 @@ def main(num_training_episodes=NUM_EPISODES, to_plot=False):
     # env.seed(RANDOM_SEED)
 
     dqn_agent = DQNAgent(state_size=env.observation_space.shape[0], action_size=env.action_space.n, seed=RANDOM_SEED)
-    episode_scores = train(dqn_agent, env, num_training_episodes, NUM_STEPS, EPS_START, EPS_END, EPS_DECAY)
+    episode_scores = train(dqn_agent, env, num_training_episodes, NUM_STEPS)
 
     if to_plot:
         fig = plt.figure()
@@ -292,4 +305,4 @@ def main(num_training_episodes=NUM_EPISODES, to_plot=False):
     return episode_scores
 
 if __name__ == '__main__':
-    main()
+    baseline_scores = main()

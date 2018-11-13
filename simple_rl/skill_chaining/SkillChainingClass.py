@@ -19,14 +19,9 @@ from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 from simple_rl.skill_chaining.skill_chaining_utils import *
-from simple_rl.agents.func_approx.TorchDQNAgentClass import EPS_START, EPS_END
-
-EPS_EXPONENTIAL_DECAY = 0.98
-EPS_LINEAR_DECAY_LENGTH = 10000
-EPS_LINEAR_DECAY = (EPS_START - EPS_END) / EPS_LINEAR_DECAY_LENGTH
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=100, subgoal_reward=20.0, subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -43,9 +38,6 @@ class SkillChaining(object):
         self.buffer_length = buffer_length
         self.subgoal_reward = subgoal_reward
         self.num_goal_hits_before_training = subgoal_hits
-
-        self.times_executed_since_being_trained = 0
-        self.epsilon = EPS_START
 
         self.trained_options = []
 
@@ -108,12 +100,6 @@ class SkillChaining(object):
                 return reward, next_state, experiences
         return 0., state, deque([])
 
-    def update_epsilon(self):
-        if self.times_executed_since_being_trained < EPS_LINEAR_DECAY_LENGTH:
-            self.epsilon -= EPS_LINEAR_DECAY
-        else:
-            self.epsilon = max(EPS_END, EPS_EXPONENTIAL_DECAY * self.epsilon)
-
     def take_action(self, state, current_option):
         """
 
@@ -126,15 +112,12 @@ class SkillChaining(object):
         """
         if current_option:
             action, reward, next_state = current_option.execute_option_in_mdp(state, self.mdp)
-            # Since we perform off-policy update on the global DQN, we decay its epsilon
-            self.update_epsilon()
             return state, action, reward, next_state
 
-        self.times_executed_since_being_trained += 1
-        action = self.global_solver.act(state.features(), self.epsilon)
+        action = self.global_solver.act(state.features(), self.global_solver.epsilon)
         reward, next_state = self.mdp.execute_agent_action(action)
         self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
-        self.update_epsilon()
+        self.global_solver.update_epsilon()
         return state, action, reward, next_state
 
     def find_option_for_state(self, state):
@@ -176,7 +159,7 @@ class SkillChaining(object):
             uo_episode_terminated = False
             state = deepcopy(self.mdp.init_state)
             experience_buffer = deque([], maxlen=self.buffer_length)
-            state_buffer = deque([], maxlen=self.buffer_length)
+            state_buffer = deque([], maxlen=self.buffer_length) # TODO: What about a bigger buffer_length?
 
             for _ in range(num_steps):
                 current_option = self.find_option_for_state(state) # type: Option
@@ -237,10 +220,7 @@ class SkillChaining(object):
             visualize_option_policy(option)
             visualize_option_starting_and_ending_points(option)
             visualize_reason_for_option_termination(option)
-            plot_epsilon_history(option)
             plot_replay_buffer_size(option)
-            plot_num_learning_updates(option)
-            plot_policy_refinement_data(option)
 
     def trained_forward_pass(self):
         """
