@@ -159,11 +159,11 @@ class SkillChaining(object):
             uo_episode_terminated = False
             state = deepcopy(self.mdp.init_state)
             experience_buffer = deque([], maxlen=self.buffer_length)
-            state_buffer = deque([], maxlen=self.buffer_length) # TODO: What about a bigger buffer_length?
+            state_buffer = deque([], maxlen=self.buffer_length)
 
             for _ in range(num_steps):
                 current_option = self.find_option_for_state(state) # type: Option
-                experience = self.take_action(state, current_option) # TODO: Determine legit option_eps
+                experience = self.take_action(state, current_option)
 
                 experience_buffer.append(experience)
                 state_buffer.append(state)
@@ -180,11 +180,6 @@ class SkillChaining(object):
 
                     if untrained_option.num_goal_hits >= self.num_goal_hits_before_training:
                         untrained_option = self._train_untrained_option(untrained_option)
-
-                # for trained_option in self.trained_options:  # type: Option
-                #     if trained_option.is_term_true(state):
-                #         trained_option.update_trained_option_policy(experience_buffer)
-                #         break
 
                 if state.is_out_of_frame() or state.is_terminal():
                     break
