@@ -78,28 +78,6 @@ class SkillChaining(object):
                                                                 buffer_length=self.buffer_length)
         return new_untrained_option
 
-    def execute_trained_option_if_possible(self, state, in_evaluation_mode):
-        """
-        Cycle through the list of trained options and execute one.
-        Args:
-            state (State)
-            in_evaluation_mode (bool): False if we want to update DQNs with this call
-
-        Returns:
-            reward (float)
-            next_state (State)
-            experiences (deque): Queue of (s,a,r,s') tuples encountered while executing option
-        """
-        # If s' is in the initiation set of ANY trained option, execute the option
-        for trained_option in self.trained_options:  # type: Option
-            if trained_option.is_init_true(state):
-                if in_evaluation_mode:
-                    reward, next_state = trained_option.trained_option_execution(state, self.mdp)
-                    return reward, next_state, deque([])
-                reward, next_state, experiences = trained_option.execute_option_in_mdp(state, self.mdp)
-                return reward, next_state, experiences
-        return 0., state, deque([])
-
     def take_action(self, state, current_option):
         """
 
@@ -121,6 +99,14 @@ class SkillChaining(object):
         return state, action, reward, next_state
 
     def find_option_for_state(self, state):
+        """
+        If state is in the initiation set of a trained option, return that trained option
+        Args:
+            state (State)
+
+        Returns:
+            trained_option (Option)
+        """
         for option in self.trained_options:
             if option.is_init_true(state):
                 return option
@@ -136,7 +122,7 @@ class SkillChaining(object):
         assert isinstance(experience[2], float) or isinstance(experience[2], int), "Expected 3rd element to be reward (float), got {}".format(experience[2])
         return float(experience[2])
 
-    def skill_chaining(self, num_episodes=1200, num_steps=1000):
+    def skill_chaining(self, num_episodes=600, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -201,11 +187,11 @@ class SkillChaining(object):
         if episode % 100 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
 
-        # if np.mean(last_100_scores) >= 200.0:
-        #     print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
-        #                                                                                  np.mean(last_100_scores)))
-        #     torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
-        #     return True
+        if np.mean(last_100_scores) >= 200.0:
+            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
+                                                                                         np.mean(last_100_scores)))
+            torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
+            return True
 
         return False
 
@@ -214,7 +200,6 @@ class SkillChaining(object):
             plot_initiation_set(option)
             visualize_option_policy(option)
             visualize_option_starting_and_ending_points(option)
-            visualize_reason_for_option_termination(option)
             plot_replay_buffer_size(option)
 
     def trained_forward_pass(self):
@@ -228,18 +213,15 @@ class SkillChaining(object):
         overall_reward = 0.
         self.mdp.render = True
         while not state.is_terminal():
-
-            # If possible, take an option
-            option_reward, next_state, _ = self.execute_trained_option_if_possible(state, in_evaluation_mode=True)
-            overall_reward += option_reward
-
-            # If we did not take an option, take a primitive action
-            if next_state == state:
-                action = self.global_solver.act(next_state.features(), eps=0.)
-                reward, next_state = self.mdp.execute_agent_action(action)
-                overall_reward += reward
-
+            current_option = self.find_option_for_state(state)
+            if current_option:
+                action = current_option.solver.act(state.features(), eps=0.)
+            else:
+                action = self.global_solver.act(state.features(), eps=0.)
+            reward, next_state = self.mdp.execute_agent_action(action)
+            overall_reward += reward
             state = next_state
+
         self.mdp.render = False
 
         # If it is a Gym environment, explicitly close it. RlPy domains don't need this
