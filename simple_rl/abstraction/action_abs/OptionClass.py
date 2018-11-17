@@ -37,7 +37,7 @@ class Experience(object):
 class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
-				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40):
+				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=25, num_subgoal_hits_required=10):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -51,6 +51,7 @@ class Option(object):
 			default_q (float)
 			global_solver (DQNAgent)
 			buffer_length (int)
+			num_subgoal_hits_required (int)
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -59,6 +60,7 @@ class Option(object):
 		self.name = name
 		self.term_prob = term_prob
 		self.buffer_length = buffer_length
+		self.num_subgoal_hits_required = num_subgoal_hits_required
 
 		# if init_state.is_terminal() and not self.is_term_true(init_state):
 		init_state.set_terminal(False)
@@ -75,16 +77,14 @@ class Option(object):
 		self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
 		self.solver.target_network.load_state_dict(self.global_solver.target_network.state_dict())
 
-		self.initiation_classifier = svm.SVC(kernel="rbf")
+		self.initiation_classifier = svm.OneClassSVM(nu=0.01)
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
-		self.initiation_data = np.empty((buffer_length, 10), dtype=State)
-		self.experience_buffer = np.empty((buffer_length, 10), dtype=Experience)
+		self.initiation_data = np.empty((buffer_length, num_subgoal_hits_required), dtype=State)
+		self.experience_buffer = np.empty((buffer_length, num_subgoal_hits_required), dtype=Experience)
 
 		self.overall_mdp = overall_mdp
 		self.num_goal_hits = 0
-
-		self.num_negative_examples = (3 * self.buffer_length) // 4
 
 		# Debug member variables
 		self.starting_points = []
@@ -157,23 +157,12 @@ class Option(object):
 			X[row, :] = states[row].features()
 		return X
 
-	def _split_experience_into_pos_neg_examples(self):
-		num_negative_examples = self.num_negative_examples
-		negative_experiences = self.initiation_data[:num_negative_examples, :] # 1st 25 states are negative examples
-		positive_experiences = self.initiation_data[num_negative_examples:, :] # Last 15 states are positive examples
-		return positive_experiences, negative_experiences
-
 	def train_initiation_classifier(self):
-		positive_examples, negative_examples = self._split_experience_into_pos_neg_examples()
-		positive_feature_matrix = self._construct_feature_matrix(positive_examples)
-		negative_feature_matrix = self._construct_feature_matrix(negative_examples)
-		positive_labels = [1] * positive_feature_matrix.shape[0]
-		negative_labels = [0] * negative_feature_matrix.shape[0]
-		X = np.concatenate((positive_feature_matrix, negative_feature_matrix))
-		Y = np.concatenate((positive_labels, negative_labels))
-
-		self.initiation_classifier.fit(X, Y)
-		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0], name=self.name+'_init_predicate')
+		positive_feature_matrix = self._construct_feature_matrix(self.initiation_data)
+		self.initiation_classifier.fit(positive_feature_matrix)
+		# The OneClassSVM.predict() returns 1 for in-class samples, and -1 for out-of-class samples
+		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0] == 1,
+										name=self.name+'_init_predicate')
 
 	def initialize_option_policy(self):
 		# Initialize the local DQN's policy with the weights of the global DQN
@@ -181,8 +170,7 @@ class Option(object):
 		self.solver.target_network.load_state_dict(self.global_solver.target_network.state_dict())
 
 		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
-		num_negative_examples = self.num_negative_examples
-		experience_buffer = self.experience_buffer[num_negative_examples:, :].reshape(-1)
+		experience_buffer = self.experience_buffer.reshape(-1)
 		for experience in experience_buffer:
 			state, a, r, s_prime = experience.serialize()
 			self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
@@ -194,7 +182,7 @@ class Option(object):
 			experience_buffer (deque): (s, a, r, s')
 		"""
 		self.num_times_indirect_update += 1
-		positive_experiences = list(experience_buffer)[-self.num_negative_examples:]
+		positive_experiences = list(experience_buffer)
 		positive_states = [positive_experience[0] for positive_experience in positive_experiences]
 		self.policy_refinement_data.append(positive_states)
 		for experience in positive_experiences:
@@ -202,11 +190,13 @@ class Option(object):
 			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 
-	def create_child_option(self, init_state, actions, new_option_name, global_solver, buffer_length, default_q=0.):
+	def create_child_option(self, init_state, actions, new_option_name, global_solver, buffer_length, num_subgoal_hits,
+							default_q=0.):
 		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
 		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
 								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
-								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length)
+								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length,
+								  num_subgoal_hits_required=num_subgoal_hits)
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):
@@ -246,7 +236,7 @@ class Option(object):
 
 	def execute_option_in_mdp(self, state, mdp):
 
-		if self.is_init_true(state):
+		if self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal() and not state.is_out_of_frame():
 
 			# ------------------ Debug logging for option's policy learning ------------------
 			self.starting_points.append(state)

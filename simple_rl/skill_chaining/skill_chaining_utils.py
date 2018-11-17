@@ -6,6 +6,7 @@ import numpy as np
 import pdb
 
 # Other imports.
+from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
 
 def plot_initiation_examples(option):
     """
@@ -112,6 +113,51 @@ def plot_initiation_set(option):
     plot_contours(sub, trained_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
     plt.scatter(X0, X1, c=Y, cmap=plt.cm.coolwarm, s=20, edgecolors='k')
     plt.savefig("{}_initiation_set.png".format(option.name))
+    plt.close()
+
+def get_one_class_init_data(option):
+    positive_feature_matrix = option._construct_feature_matrix(option.initiation_data)
+    return positive_feature_matrix
+
+def plot_one_class_initiation_classifier(option):
+    trained_classifier = option.initiation_classifier
+    classifier_name = "OCSVM"
+    legend = {}
+
+    plt.figure(figsize=(8.0, 5.0))
+    X = get_one_class_init_data(option)
+    X0, X1 = X[:, 0], X[:, 1]
+    xx, yy = make_meshgrid(X0, X1)
+    Z1 = trained_classifier.decision_function(np.c_[xx.ravel(), yy.ravel()])
+    Z1 = Z1.reshape(xx.shape)
+    legend[classifier_name] = plt.contour(xx, yy, Z1, levels=[0], linewidths=2, colors="m")
+
+    plt.plot(X0, X1, '.')
+
+    for row in range(X.shape[0]):
+        buffer_length = option.buffer_length
+        plt.scatter(X0[row], X1[row], c='k', alpha=(float(row) % buffer_length) / float(buffer_length))
+
+    plt.xlim((-1., 1.))
+    plt.ylim((-0.25, 1.75))
+    plt.xlabel("xpos")
+    plt.ylabel("ypos")
+
+    plt.savefig("{}_one_class_svm.png".format(option.name))
+    plt.close()
+
+def sample_termination_set_classifier(option):
+    plt.figure(figsize=(8., 5.))
+    y = np.arange(1.5, -0.2, -0.1)
+    x = np.zeros_like(y)
+    for x0, y0 in zip(x, y):
+        state = PositionalLunarLanderState(x0, y0)
+        color = 'b' if option.is_term_true(state) == 1 else 'k'
+        plt.scatter(x0, y0, c=color)
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.title("{}: sampled termination set (blue: in term)".format(option.name))
+    plt.savefig("{}_sampled_termination_set.png".format(option.name))
     plt.close()
 
 def visualize_option_policy(option):

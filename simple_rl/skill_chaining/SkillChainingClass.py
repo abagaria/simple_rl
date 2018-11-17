@@ -21,7 +21,7 @@ from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 from simple_rl.skill_chaining.skill_chaining_utils import *
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=100, subgoal_reward=20.0, subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=25, subgoal_reward=20.0, subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -71,13 +71,15 @@ class SkillChaining(object):
         print("Creating {}".format(name))
 
         plot_initiation_examples(untrained_option)
+        plot_one_class_initiation_classifier(untrained_option)
 
         # Using the global init_state as the init_state for all child options
         new_untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
                                                                 actions=self.original_actions,
                                                                 new_option_name=name,
                                                                 global_solver=self.global_solver,
-                                                                buffer_length=self.buffer_length)
+                                                                buffer_length=self.buffer_length,
+                                                                num_subgoal_hits=self.num_goal_hits_before_training)
         return new_untrained_option
 
     def take_action(self, state, current_option):
@@ -129,7 +131,7 @@ class SkillChaining(object):
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
                              name='overall_goal_policy', term_prob=0., global_solver=self.global_solver,
-                             buffer_length=self.buffer_length)
+                             buffer_length=self.buffer_length, num_subgoal_hits_required=self.num_goal_hits_before_training)
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
@@ -204,11 +206,12 @@ class SkillChaining(object):
             visualize_option_starting_and_ending_points(option)
             plot_replay_buffer_size(option)
 
-    def trained_forward_pass(self):
+    def trained_forward_pass(self, verbose=True):
         """
         Called when skill chaining has finished training: execute options when possible and then atomic actions
         Returns:
             overall_reward (float): score accumulated over the course of the episode.
+            verbose (bool): if True, then will print out which option/action is being executed
         """
         self.mdp.reset()
         state = deepcopy(self.mdp.init_state)
@@ -218,13 +221,17 @@ class SkillChaining(object):
             current_option = self.find_option_for_state(state)
             if current_option:
                 action = current_option.solver.act(state.features(), eps=0.)
+                if verbose: print("Taking {}".format(current_option.name))
             else:
                 action = self.global_solver.act(state.features(), eps=0.)
+                if verbose: print("Taking action {}".format(action))
+            sys.stdout.flush()
             reward, next_state = self.mdp.execute_agent_action(action)
             overall_reward += reward
             state = next_state
 
         self.mdp.render = False
+        print()
 
         # If it is a Gym environment, explicitly close it. RlPy domains don't need this
         if hasattr(self.mdp, "env"):
