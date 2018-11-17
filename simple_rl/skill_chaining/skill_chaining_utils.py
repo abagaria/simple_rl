@@ -19,7 +19,8 @@ def plot_initiation_examples(option):
     xdot_negative, ydot_negative = negative_feature_matrix[:, 2], negative_feature_matrix[:, 3]
     theta_negative, theta_dot_negative = negative_feature_matrix[:, 4], negative_feature_matrix[:, 5]
 
-    plt.subplot(1, 3, 1)
+    fig = plt.figure(figsize=(8.0, 5.0))
+    fig.add_subplot(131)
     plt.plot(x_positive, y_positive, ".", label="positive")
     plt.plot(x_negative, y_negative, ".", label="negative")
     plt.xlabel("x")
@@ -27,7 +28,7 @@ def plot_initiation_examples(option):
     plt.title("Position Examples")
     plt.legend()
 
-    plt.subplot(1, 3, 2)
+    fig.add_subplot(132)
     plt.plot(xdot_positive, ydot_positive, ".", label="positive")
     plt.plot(xdot_negative, ydot_negative, ".", label="negative")
     plt.xlabel("x_dot")
@@ -35,7 +36,7 @@ def plot_initiation_examples(option):
     plt.title("Translational Velocity Examples")
     plt.legend()
 
-    plt.subplot(1, 3, 3)
+    fig.add_subplot(133)
     plt.plot(theta_positive, theta_dot_positive, ".", label="positive")
     plt.plot(theta_negative, theta_dot_negative, ".", label="negative")
     plt.xlabel("theta")
@@ -43,7 +44,7 @@ def plot_initiation_examples(option):
     plt.title("Angle vs Angular Velocity")
     plt.legend()
 
-    plt.savefig("{}_initiation_set_examples.png".format(option.name))
+    fig.savefig("{}_initiation_set_examples.png".format(option.name))
 
 def plot_trajectory(trajectory, show=True, color='k'):
     """
