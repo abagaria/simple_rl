@@ -56,6 +56,10 @@ class LunarLanderMDP(MDP):
         return Predicate(
             func=lambda s: (-0.2 < s.x < 0.2)
                            and (-0.1 < s.y < 0.1)
+                           and abs(s.theta) < 0.1
+                           and abs(s.theta_dot) < 0.1
+                           and abs(s.xdot) < 0.1
+                           and abs(s.ydot) < 0.1
                            and s.is_terminal()
                          )
 

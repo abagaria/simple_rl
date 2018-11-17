@@ -70,6 +70,8 @@ class SkillChaining(object):
 
         print("Creating {}".format(name))
 
+        plot_initiation_examples(untrained_option)
+
         # Using the global init_state as the init_state for all child options
         new_untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
                                                                 actions=self.original_actions,
@@ -197,7 +199,7 @@ class SkillChaining(object):
 
     def perform_experiments(self):
         for option in self.trained_options:
-            plot_initiation_set(option)
+            # plot_initiation_set(option)
             visualize_option_policy(option)
             visualize_option_starting_and_ending_points(option)
             plot_replay_buffer_size(option)

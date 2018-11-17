@@ -3,9 +3,47 @@ import seaborn as sns
 sns.set()
 import matplotlib.pyplot as plt
 import numpy as np
+import pdb
 
 # Other imports.
 
+def plot_initiation_examples(option):
+    """
+    Visualize the examples used to learn the SVM initiation classifier for a particular option
+    """
+    positive_feature_matrix, negative_feature_matrix = get_positive_and_negative_feature_matrices(option)
+    x_positive, y_positive = positive_feature_matrix[:, 0], positive_feature_matrix[:, 1]
+    xdot_positive, ydot_positive = positive_feature_matrix[:, 2], positive_feature_matrix[:, 3]
+    theta_positive, theta_dot_positive = positive_feature_matrix[:, 4], positive_feature_matrix[:, 5]
+    x_negative, y_negative = negative_feature_matrix[:, 0], negative_feature_matrix[:, 1]
+    xdot_negative, ydot_negative = negative_feature_matrix[:, 2], negative_feature_matrix[:, 3]
+    theta_negative, theta_dot_negative = negative_feature_matrix[:, 4], negative_feature_matrix[:, 5]
+
+    plt.subplot(1, 3, 1)
+    plt.plot(x_positive, y_positive, ".", label="positive")
+    plt.plot(x_negative, y_negative, ".", label="negative")
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.title("Position Examples")
+    plt.legend()
+
+    plt.subplot(1, 3, 2)
+    plt.plot(xdot_positive, ydot_positive, ".", label="positive")
+    plt.plot(xdot_negative, ydot_negative, ".", label="negative")
+    plt.xlabel("x_dot")
+    plt.ylabel("y_dot")
+    plt.title("Translational Velocity Examples")
+    plt.legend()
+
+    plt.subplot(1, 3, 3)
+    plt.plot(theta_positive, theta_dot_positive, ".", label="positive")
+    plt.plot(theta_negative, theta_dot_negative, ".", label="negative")
+    plt.xlabel("theta")
+    plt.ylabel("theta_dot")
+    plt.title("Angle vs Angular Velocity")
+    plt.legend()
+
+    plt.savefig("{}_initiation_set_examples.png".format(option.name))
 
 def plot_trajectory(trajectory, show=True, color='k'):
     """
@@ -47,6 +85,12 @@ def plot_contours(ax, clf, xx, yy, **params):
     Z = Z.reshape(xx.shape)
     out = ax.contourf(xx, yy, Z, **params)
     return out
+
+def get_positive_and_negative_feature_matrices(option):
+    positive_examples, negative_examples = option._split_experience_into_pos_neg_examples()
+    positive_feature_matrix = option._construct_feature_matrix(positive_examples)
+    negative_feature_matrix = option._construct_feature_matrix(negative_examples)
+    return positive_feature_matrix, negative_feature_matrix
 
 def get_init_data_and_labels(option):
     positive_examples, negative_examples = option._split_experience_into_pos_neg_examples()
