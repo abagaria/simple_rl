@@ -41,7 +41,8 @@ class PretrainedOptionsLoader(object):
         init_predicate = Predicate(func=lambda s: initiation_classifier.predict([s.features()])[0],
                                    name=name + '_init_predicate')
         option = previous_option.create_child_option(self.mdp.init_state, self.mdp.actions, name, self.global_solver,
-                                                     buffer_length=self.buffer_length, pretrained=True)
+                                                     buffer_length=self.buffer_length, pretrained=True,
+                                                     num_subgoal_hits=10)
         option.init_predicate = init_predicate
         option.solver = agent
         return option

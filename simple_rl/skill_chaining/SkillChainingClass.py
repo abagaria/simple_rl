@@ -216,10 +216,10 @@ class SkillChaining(object):
 
     def perform_experiments(self):
         for option in self.trained_options:
-            plot_initiation_set(option)
+            # plot_initiation_set(option)
             visualize_option_policy(option)
             visualize_option_starting_and_ending_points(option)
-            plot_replay_buffer_size(option)
+            # plot_replay_buffer_size(option)
 
     def trained_forward_pass(self, verbose=True):
         """
@@ -263,7 +263,7 @@ if __name__ == '__main__':
     environment = overall_mdp.env
     environment.seed(0) # TODO: Set this seed so that we can compare between runs
     solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
-    buffer_len = 100
+    buffer_len = 40
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
@@ -277,6 +277,7 @@ if __name__ == '__main__':
                                 pretrained_options=pretrained_options)
         episodic_scores = chainer.skill_chaining()
     else:
+        print("Training skill chaining agent from scratch with a buffer length of ", buffer_len)
         chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len)
         episodic_scores = chainer.skill_chaining()
         chainer.save_all_dqns()
