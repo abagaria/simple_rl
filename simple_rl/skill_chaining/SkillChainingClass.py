@@ -9,8 +9,10 @@ matplotlib.use('TkAgg')
 from collections import deque
 from copy import deepcopy
 import torch
-import time
+import _pickle as pickle
 import pdb
+import argparse
+import sys
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
@@ -19,14 +21,17 @@ from simple_rl.abstraction.action_abs.OptionClass import Option
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 from simple_rl.skill_chaining.skill_chaining_utils import *
+from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=100, subgoal_reward=20.0, subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
+                 buffer_length=100, subgoal_reward=20.0, subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
             overall_goal_predicate (Predicate)
             rl_agent (DQNAgent): RL agent used to determine the policy for each option
+            pretrained_options (list): options obtained from a previous run of the skill chaining algorithm
             buffer_length (int): size of the circular buffer used as experience buffer
             subgoal_reward (float): Hitting a subgoal must yield a supplementary reward to enable local policy
             subgoal_hits (int): number of times the RL agent has to hit the goal of an option o to learn its I_o, Beta_o
@@ -40,6 +45,10 @@ class SkillChaining(object):
         self.num_goal_hits_before_training = subgoal_hits
 
         self.trained_options = []
+
+        # If we are given pretrained options, we will just use them as trained options
+        if len(pretrained_options) > 0:
+            self.trained_options = pretrained_options
 
     def _train_untrained_option(self, untrained_option):
         """
@@ -176,9 +185,6 @@ class SkillChaining(object):
             if self._log_dqn_status(episode, last_100_scores):
                 break
 
-        else:
-            torch.save(self.global_solver.policy_network.state_dict(), 'unsolved_gsolver_{}.pth'.format(time.time()))
-
         return per_episode_scores
 
 
@@ -190,10 +196,19 @@ class SkillChaining(object):
         if np.mean(last_100_scores) >= 200.0:
             print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
                                                                                          np.mean(last_100_scores)))
-            torch.save(self.global_solver.policy_network.state_dict(), 'checkpoint_gsolver_{}.pth'.format(time.time()))
             return True
 
         return False
+
+    def save_all_dqns(self):
+        torch.save(self.global_solver.policy_network.state_dict(), 'global_dqn.pth')
+        for option in self.trained_options: # type: Option
+            torch.save(option.solver.policy_network.state_dict(), '{}_dqn.pth'.format(option.name))
+
+    def save_all_initiation_classifiers(self):
+        for option in self.trained_options:
+            with open("{}_svm.pkl".format(option.name), "wb+") as _f:
+                pickle.dump(option.initiation_classifier, _f)
 
     def perform_experiments(self):
         for option in self.trained_options:
@@ -202,11 +217,12 @@ class SkillChaining(object):
             visualize_option_starting_and_ending_points(option)
             plot_replay_buffer_size(option)
 
-    def trained_forward_pass(self):
+    def trained_forward_pass(self, verbose=True):
         """
         Called when skill chaining has finished training: execute options when possible and then atomic actions
         Returns:
             overall_reward (float): score accumulated over the course of the episode.
+            verbose (bool): if True, then will print out which option/action is being executed
         """
         self.mdp.reset()
         state = deepcopy(self.mdp.init_state)
@@ -216,8 +232,10 @@ class SkillChaining(object):
             current_option = self.find_option_for_state(state)
             if current_option:
                 action = current_option.solver.act(state.features(), eps=0.)
+                if verbose: print("Taking {}".format(current_option))
             else:
                 action = self.global_solver.act(state.features(), eps=0.)
+                if verbose: print("Taking {}".format(action))
             reward, next_state = self.mdp.execute_agent_action(action)
             overall_reward += reward
             state = next_state
@@ -237,8 +255,24 @@ def construct_lunar_lander_mdp():
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()
     environment = overall_mdp.env
-    # environment.seed(0) TODO: Set this seed so that we can compare between runs
+    environment.seed(0) # TODO: Set this seed so that we can compare between runs
     solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
-    chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
-    episodic_scores = chainer.skill_chaining()
-    chainer.perform_experiments()
+    buffer_len = 100
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
+    args = parser.parse_args()
+
+    if args.pretrained:
+        loader = PretrainedOptionsLoader(overall_mdp, solver, buffer_length=buffer_len)
+        pretrained_options = loader.get_pretrained_options()
+        print("Running skill chaining with pretrained options: {}".format(pretrained_options))
+        chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len,
+                                pretrained_options=pretrained_options)
+        episodic_scores = chainer.skill_chaining()
+    else:
+        chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len)
+        episodic_scores = chainer.skill_chaining()
+        chainer.save_all_dqns()
+        chainer.save_all_initiation_classifiers()
+        chainer.perform_experiments()

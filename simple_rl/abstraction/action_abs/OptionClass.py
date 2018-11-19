@@ -39,7 +39,7 @@ class Experience(object):
 class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
-				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40):
+				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -53,6 +53,7 @@ class Option(object):
 			default_q (float)
 			global_solver (DQNAgent)
 			buffer_length (int)
+			pretrained (bool)
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -61,6 +62,7 @@ class Option(object):
 		self.name = name
 		self.term_prob = term_prob
 		self.buffer_length = buffer_length
+		self.pretrained = pretrained
 
 		# if init_state.is_terminal() and not self.is_term_true(init_state):
 		init_state.set_terminal(False)
@@ -213,11 +215,11 @@ class Option(object):
 			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 
-	def create_child_option(self, init_state, actions, new_option_name, global_solver, buffer_length, default_q=0.):
+	def create_child_option(self, init_state, actions, new_option_name, global_solver, buffer_length, default_q=0., pretrained=False):
 		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
 		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
 								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
-								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length)
+								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length, pretrained=pretrained)
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):
@@ -266,9 +268,11 @@ class Option(object):
 			self.num_indirect_updates.append(self.num_times_indirect_update)
 			# ---------------------------------------------------------------------------------
 
-			action = self.solver.act(state.features(), self.solver.epsilon)
+			epsilon = self.solver.epsilon if not self.pretrained else 0.
+			action = self.solver.act(state.features(), epsilon)
 			reward, next_state = mdp.execute_agent_action(action)
-			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+			if not self.pretrained:
+				self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 			self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 			# Epsilon decay
