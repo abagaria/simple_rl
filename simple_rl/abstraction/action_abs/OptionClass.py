@@ -236,7 +236,7 @@ class Option(object):
 
 	def execute_option_in_mdp(self, state, mdp):
 
-		if self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal() and not state.is_out_of_frame():
+		if self.is_init_true(state):
 
 			# ------------------ Debug logging for option's policy learning ------------------
 			self.starting_points.append(state)

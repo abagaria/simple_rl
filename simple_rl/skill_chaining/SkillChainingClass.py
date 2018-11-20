@@ -21,7 +21,7 @@ from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 from simple_rl.skill_chaining.skill_chaining_utils import *
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=25, subgoal_reward=20.0, subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -71,7 +71,7 @@ class SkillChaining(object):
         print("Creating {}".format(name))
 
         plot_initiation_examples(untrained_option)
-        plot_one_class_initiation_classifier(untrained_option)
+        plot_all_trajectories_in_initiation_data(untrained_option.initiation_data, untrained_option.name)
 
         # Using the global init_state as the init_state for all child options
         new_untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
@@ -246,7 +246,7 @@ def construct_lunar_lander_mdp():
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()
     environment = overall_mdp.env
-    # environment.seed(0) TODO: Set this seed so that we can compare between runs
+    environment.seed(0) # TODO: Set this seed so that we can compare between runs
     solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
     chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
     episodic_scores = chainer.skill_chaining()

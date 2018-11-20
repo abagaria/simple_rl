@@ -12,38 +12,32 @@ def plot_initiation_examples(option):
     """
     Visualize the examples used to learn the SVM initiation classifier for a particular option
     """
-    positive_feature_matrix, negative_feature_matrix = get_positive_and_negative_feature_matrices(option)
+    positive_feature_matrix = get_one_class_init_data(option)
     x_positive, y_positive = positive_feature_matrix[:, 0], positive_feature_matrix[:, 1]
     xdot_positive, ydot_positive = positive_feature_matrix[:, 2], positive_feature_matrix[:, 3]
     theta_positive, theta_dot_positive = positive_feature_matrix[:, 4], positive_feature_matrix[:, 5]
-    x_negative, y_negative = negative_feature_matrix[:, 0], negative_feature_matrix[:, 1]
-    xdot_negative, ydot_negative = negative_feature_matrix[:, 2], negative_feature_matrix[:, 3]
-    theta_negative, theta_dot_negative = negative_feature_matrix[:, 4], negative_feature_matrix[:, 5]
 
     fig = plt.figure(figsize=(8.0, 5.0))
     fig.add_subplot(131)
     plt.plot(x_positive, y_positive, ".", label="positive")
-    plt.plot(x_negative, y_negative, ".", label="negative")
     plt.xlabel("x")
     plt.ylabel("y")
-    plt.title("Position Examples")
-    plt.legend()
+    # plt.title("Position Examples")
+    # plt.legend()
 
     fig.add_subplot(132)
     plt.plot(xdot_positive, ydot_positive, ".", label="positive")
-    plt.plot(xdot_negative, ydot_negative, ".", label="negative")
     plt.xlabel("x_dot")
     plt.ylabel("y_dot")
-    plt.title("Translational Velocity Examples")
-    plt.legend()
+    # plt.title("Translational Velocity Examples")
+    # plt.legend()
 
     fig.add_subplot(133)
     plt.plot(theta_positive, theta_dot_positive, ".", label="positive")
-    plt.plot(theta_negative, theta_dot_negative, ".", label="negative")
     plt.xlabel("theta")
     plt.ylabel("theta_dot")
-    plt.title("Angle vs Angular Velocity")
-    plt.legend()
+    # plt.title("Angle vs Angular Velocity")
+    # plt.legend()
 
     fig.savefig("{}_initiation_set_examples.png".format(option.name))
 
@@ -60,7 +54,7 @@ def plot_trajectory(trajectory, show=True, color='k'):
     plt.title('Trajectory (Bolder color implies more recent point in time)')
     if show: plt.show()
 
-def plot_all_trajectories_in_initiation_data(initiation_data):
+def plot_all_trajectories_in_initiation_data(initiation_data, option_name):
     """
     Plot all the state buffers of an option
     Args:
@@ -72,7 +66,7 @@ def plot_all_trajectories_in_initiation_data(initiation_data):
     for i in range(initiation_data.shape[1]):
         trajectory = initiation_data[:, i]
         plot_trajectory(trajectory, show=False, color=possible_colors[i])
-    plt.show()
+    plt.savefig("{}_initiation_data.png".format(option_name))
 
 def make_meshgrid(x, y, h=.02):
     x_min, x_max = x.min() - 1, x.max() + 1
@@ -87,12 +81,6 @@ def plot_contours(ax, clf, xx, yy, **params):
     Z = Z.reshape(xx.shape)
     out = ax.contourf(xx, yy, Z, **params)
     return out
-
-def get_positive_and_negative_feature_matrices(option):
-    positive_examples, negative_examples = option._split_experience_into_pos_neg_examples()
-    positive_feature_matrix = option._construct_feature_matrix(positive_examples)
-    negative_feature_matrix = option._construct_feature_matrix(negative_examples)
-    return positive_feature_matrix, negative_feature_matrix
 
 def get_init_data_and_labels(option):
     positive_examples, negative_examples = option._split_experience_into_pos_neg_examples()

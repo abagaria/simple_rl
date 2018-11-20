@@ -55,13 +55,35 @@ class LunarLanderMDP(MDP):
     def default_goal_predicate():
         return Predicate(
             func=lambda s: (-0.2 < s.x < 0.2)
-                           and (-0.1 < s.y < 0.1)
-                           and abs(s.theta) < 0.1
-                           and abs(s.theta_dot) < 0.1
-                           and abs(s.xdot) < 0.1
-                           and abs(s.ydot) < 0.1
-                           and s.is_terminal()
+                           and (-0.02 < s.y < 0.02)
+                           # and abs(s.theta) < 0.1
+                           # and abs(s.theta_dot) < 0.1
+                           and abs(s.xdot) < 0.01
+                           and abs(s.ydot) < 0.01
+                           # and s.is_terminal()
                          )
+
+    # TODO: Incorporate this to test with sparse reward lunar lander
+    @staticmethod
+    def positive_reward_predicate():
+        return Predicate(
+            func=lambda s: abs(s.x) < 0.2
+                       and abs(s.y) < 0.1
+                       and abs(s.xdot) < 0.01
+                       and abs(s.ydot) < 0.01
+                       and abs(s.theta) < 0.1
+                       and s.is_terminal()
+        )
+
+    @staticmethod
+    def negative_reward_predicate():
+        return Predicate(
+            func=lambda s: s.is_terminal()
+                       and abs(s.x) > 0.2
+                       and abs(s.xdot) > 0.01
+                       and abs(s.ydot) > 0.01
+                       and abs(s.theta) > 0.1
+        )
 
     def reset(self):
         init_observation = self.env.reset()
