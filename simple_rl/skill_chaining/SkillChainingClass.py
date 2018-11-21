@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
-                 buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
+                 buffer_length=40, subgoal_reward=100.0, subgoal_hits=3):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -80,7 +80,7 @@ class SkillChaining(object):
         print("Creating {}".format(name))
 
         # plot_initiation_examples(untrained_option)
-        plot_one_class_initiation_classifier(untrained_option)
+        # plot_one_class_initiation_classifier(untrained_option)
 
         # Using the global init_state as the init_state for all child options
         new_untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
@@ -135,7 +135,7 @@ class SkillChaining(object):
         assert isinstance(experience[2], float) or isinstance(experience[2], int), "Expected 3rd element to be reward (float), got {}".format(experience[2])
         return float(experience[2])
 
-    def skill_chaining(self, num_episodes=600, num_steps=1000):
+    def skill_chaining(self, num_episodes=250, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -171,13 +171,18 @@ class SkillChaining(object):
                 state = self.get_next_state_from_experience(experience)
                 score += self.get_reward_from_experience(experience)
 
-                if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 3:
+                if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 6:
                     uo_episode_terminated = True
                     untrained_option.num_goal_hits += 1
+                    print("\nHit the termination condition of {} {} times so far".format(untrained_option, untrained_option.num_goal_hits))
+
+                    # Augment the most recent experience with the subgoal reward
+                    experience_buffer[-1] = (experience[0], experience[1], experience[2] + self.subgoal_reward, experience[3])
                     untrained_option.add_initiation_experience(state_buffer)
                     untrained_option.add_experience_buffer(experience_buffer)
 
                     if untrained_option.num_goal_hits >= self.num_goal_hits_before_training:
+                        pdb.set_trace()
                         untrained_option = self._train_untrained_option(untrained_option)
 
                 if state.is_out_of_frame() or state.is_terminal():
@@ -252,7 +257,9 @@ class SkillChaining(object):
 
 def construct_lunar_lander_mdp():
     predicate = LunarLanderMDP.default_goal_predicate()
-    return LunarLanderMDP(goal_predicate=predicate, render=False)
+    mdp = LunarLanderMDP(goal_predicate=predicate, render=False)
+    mdp.env.seed(0)
+    return mdp
 
 def construct_pinball_mdp():
     from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
@@ -260,11 +267,10 @@ def construct_pinball_mdp():
     return mdp
 
 if __name__ == '__main__':
-    overall_mdp = construct_lunar_lander_mdp()
-    environment = overall_mdp.env
-    environment.seed(0) # TODO: Set this seed so that we can compare between runs
-    solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
-    buffer_len = 40
+    overall_mdp = construct_pinball_mdp()
+    state_space_size = overall_mdp.init_state.state_space_size()
+    solver = DQNAgent(state_space_size, len(overall_mdp.actions), 0)
+    buffer_len = 50
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
@@ -279,6 +285,8 @@ if __name__ == '__main__':
         episodic_scores = chainer.skill_chaining()
     else:
         print("Training skill chaining agent from scratch with a buffer length of ", buffer_len)
+        print("MDP InitState = ", overall_mdp.init_state)
+        print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
         chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len)
         episodic_scores = chainer.skill_chaining()
         chainer.save_all_dqns()

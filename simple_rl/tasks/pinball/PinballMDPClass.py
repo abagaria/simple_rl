@@ -11,7 +11,7 @@ from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 class PinballMDP(MDP):
     """ Class for pinball domain. """
 
-    def __init__(self, noise=0., episode_length=1000, render=False):
+    def __init__(self, noise=0., episode_length=1000, goal_predicate=None, render=False):
         self.domain = Pinball(noise=noise, episodeCap=episode_length)
         self.render = render
 
@@ -21,6 +21,7 @@ class PinballMDP(MDP):
         init_state = tuple(init_observation[0])
 
         actions = self.domain.actions
+        self.goal_predicate = goal_predicate if goal_predicate is not None else self.default_goal_predicate()
 
         MDP.__init__(self, actions, self._transition_func, self._reward_func, init_state=PinballState(*init_state))
 
