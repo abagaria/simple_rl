@@ -38,51 +38,44 @@ class LunarLanderMDP(MDP):
         Returns:
             next_state (LunarLanderState)
         """
-        obs, reward, is_terminal, info = self.env.step(action)
+        obs, _, is_terminal, info = self.env.step(action)
 
         if self.render:
             self.env.render()
 
         self.next_state = LunarLanderState(*tuple(obs), is_terminal=is_terminal)
 
-        return reward
+        # Sparse reward function
+        if self.positive_reward_predicate().is_true(self.next_state):
+            print("\nHit goal state, getting 100. points!")
+            self.next_state.is_terminal = True
+            return 100.
+        elif self.negative_reward_predicate().is_true(self.next_state):
+            # print("\nHit bad termination, getting -100 points =(")
+            return -100.
+        else:
+            return 0.
 
     # Assuming that _reward_func(s, a) is called before _transition_func(s, a)
     def _transition_func(self, state, action):
         return self.next_state
-
-    @staticmethod
-    def default_goal_predicate():
-        return Predicate(
-            func=lambda s: (-0.2 < s.x < 0.2)
-                           and (-0.02 < s.y < 0.02)
-                           # and abs(s.theta) < 0.1
-                           # and abs(s.theta_dot) < 0.1
-                           and abs(s.xdot) < 0.01
-                           and abs(s.ydot) < 0.01
-                           # and s.is_terminal()
-                         )
 
     # TODO: Incorporate this to test with sparse reward lunar lander
     @staticmethod
     def positive_reward_predicate():
         return Predicate(
             func=lambda s: abs(s.x) < 0.2
-                       and abs(s.y) < 0.1
-                       and abs(s.xdot) < 0.01
+                       and abs(s.y) < 0.01
+                       and abs(s.xdot) < 0.1
                        and abs(s.ydot) < 0.01
                        and abs(s.theta) < 0.1
-                       and s.is_terminal()
         )
 
     @staticmethod
     def negative_reward_predicate():
         return Predicate(
             func=lambda s: s.is_terminal()
-                       and abs(s.x) > 0.2
-                       and abs(s.xdot) > 0.01
-                       and abs(s.ydot) > 0.01
-                       and abs(s.theta) > 0.1
+                       and not LunarLanderMDP.positive_reward_predicate().is_true(s)
         )
 
     def reset(self):
