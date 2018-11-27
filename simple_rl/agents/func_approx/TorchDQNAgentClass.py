@@ -37,7 +37,7 @@ print("######### Using {} ############".format(device))
 class QNetwork(nn.Module):
     """Actor (Policy) Model."""
 
-    def __init__(self, state_size, action_size, seed, fc1_units=64, fc2_units=64):
+    def __init__(self, state_size, action_size, seed, fc1_units=256, fc2_units=128):
         """
         Set up the layers of the DQN
         Args:

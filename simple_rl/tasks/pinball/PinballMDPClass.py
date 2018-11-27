@@ -41,6 +41,12 @@ class PinballMDP(MDP):
 
         self.next_state = PinballState(*tuple(obs), is_terminal=is_terminal)
 
+        # if self.default_goal_predicate().is_true(self.next_state):
+        #     print()
+        #     print(80 * "=")
+        #     print("Hit goal state!")
+        #     print(80 * "=")
+
         return reward
 
     def _transition_func(self, state, action):

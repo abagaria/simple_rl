@@ -74,7 +74,7 @@ def get_one_class_init_data(option):
     positive_feature_matrix = option._construct_feature_matrix(option.initiation_data)
     return positive_feature_matrix
 
-def plot_one_class_initiation_classifier(option):
+def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     trained_classifier = option.initiation_classifier
     classifier_name = "OCSVM"
     legend = {}
@@ -93,8 +93,13 @@ def plot_one_class_initiation_classifier(option):
         buffer_length = option.buffer_length
         plt.scatter(X0[row], X1[row], c='k', alpha=(float(row) % buffer_length) / float(buffer_length))
 
-    plt.xlim((-1., 1.))
-    plt.ylim((-0.25, 1.75))
+    if is_pinball_domain:
+        plt.xlim((0., 1.))
+        plt.ylim((0., 1.))
+        plt.gca().invert_yaxis()
+    else:
+        plt.xlim((-1., 1.))
+        plt.ylim((-0.25, 1.75))
     plt.xlabel("xpos")
     plt.ylabel("ypos")
 

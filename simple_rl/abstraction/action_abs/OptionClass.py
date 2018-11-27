@@ -118,15 +118,15 @@ class Option(object):
 		return not self == other
 
 	def is_init_true(self, ground_state):
-		# if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
-		# 	positional_state = ground_state.convert_to_positional_state()
-		# 	return self.init_predicate.is_true(positional_state)
+		if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
+			positional_state = ground_state.convert_to_positional_state()
+			return self.init_predicate.is_true(positional_state)
 		return self.init_predicate.is_true(ground_state)
 
 	def is_term_true(self, ground_state):
-		# if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
-		# 	positional_state = ground_state.convert_to_positional_state()
-		# 	return self.term_predicate.is_true(positional_state)
+		if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
+			positional_state = ground_state.convert_to_positional_state()
+			return self.term_predicate.is_true(positional_state)
 		return self.term_predicate.is_true(ground_state) # or self.term_flag or self.term_prob > random.random()
 
 	def act(self, ground_state):
@@ -148,8 +148,8 @@ class Option(object):
 		states = list(states_queue)
 
 		# Convert the high dimensional states to positional states for ease of learning the initiation classifier
-		# positional_states = [state.convert_to_positional_state() for state in states]
-		self.initiation_data[:, self.num_goal_hits-1] = np.asarray(states)
+		positional_states = [state.convert_to_positional_state() for state in states]
+		self.initiation_data[:, self.num_goal_hits-1] = np.asarray(positional_states)
 
 	def add_experience_buffer(self, experience_queue):
 		"""
@@ -265,7 +265,7 @@ class Option(object):
 
 			# If we reach the current opion's subgoal,
 			if self.is_term_true(next_state):
-				augmented_reward += 100. # TODO: pass the subgoal_reward from SkillChainingClass
+				augmented_reward += 2000. # TODO: pass the subgoal_reward from SkillChainingClass
 			if not self.pretrained:
 				self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
 			# TODO: Unclear if I shold also update the global DQN with the augmented reward or not
