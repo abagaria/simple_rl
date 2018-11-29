@@ -4,6 +4,7 @@ from collections import namedtuple, deque
 import gym
 import matplotlib.pyplot as plt
 import seaborn as sns
+from copy import deepcopy
 
 import torch.optim as optim
 
@@ -240,21 +241,22 @@ class ReplayBuffer:
         """Return the current size of internal memory."""
         return len(self.memory)
 
-def train(agent, env, episodes, steps):
+def train(agent, mdp, episodes, steps):
     per_episode_scores = []
     last_100_scores = deque(maxlen=100)
 
     for episode in range(episodes):
-        state = env.reset()
+        mdp.reset()
+        state = deepcopy(mdp.init_state)
         score = 0.
         for step in range(steps):
             action = agent.act(state, agent.epsilon)
-            next_state, reward, done, _ = env.step(action)
-            agent.step(state, action, reward, next_state, done)
+            reward, next_state = mdp.execute_agent_action(action)
+            agent.step(state, action, reward, next_state, next_state.is_terminal())
             agent.update_epsilon()
             state = next_state
             score += reward
-            if done:
+            if state.is_terminal():
                 break
         last_100_scores.append(score)
         per_episode_scores.append(score)

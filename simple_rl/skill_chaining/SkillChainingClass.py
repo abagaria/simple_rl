@@ -21,7 +21,7 @@ from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 from simple_rl.skill_chaining.skill_chaining_utils import *
 
 class SkillChaining(object):
-    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=20.0, subgoal_hits=10):
+    def __init__(self, mdp, overall_goal_predicate, rl_agent, buffer_length=40, subgoal_reward=50.0, subgoal_hits=10):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -126,7 +126,7 @@ class SkillChaining(object):
         assert isinstance(experience[2], float) or isinstance(experience[2], int), "Expected 3rd element to be reward (float), got {}".format(experience[2])
         return float(experience[2])
 
-    def skill_chaining(self, num_episodes=600, num_steps=1000):
+    def skill_chaining(self, num_episodes=10000, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -165,6 +165,8 @@ class SkillChaining(object):
                 if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 3:
                     uo_episode_terminated = True
                     untrained_option.num_goal_hits += 1
+
+                    experience_buffer[-1] = (experience[0], experience[1], experience[2] + self.subgoal_reward, experience[3])
                     untrained_option.add_initiation_experience(state_buffer)
                     untrained_option.add_experience_buffer(experience_buffer)
 
@@ -240,14 +242,13 @@ class SkillChaining(object):
         return overall_reward
 
 def construct_lunar_lander_mdp():
-    predicate = LunarLanderMDP.default_goal_predicate()
-    return LunarLanderMDP(goal_predicate=predicate, render=False)
+    return LunarLanderMDP(render=False)
 
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()
     environment = overall_mdp.env
     environment.seed(0) # TODO: Set this seed so that we can compare between runs
     solver = DQNAgent(environment.observation_space.shape[0], environment.action_space.n, 0)
-    chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver)
+    chainer = SkillChaining(overall_mdp, overall_mdp.positive_reward_predicate(), rl_agent=solver)
     episodic_scores = chainer.skill_chaining()
     chainer.perform_experiments()

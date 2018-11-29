@@ -7,19 +7,18 @@ import gym
 from simple_rl.mdp.MDPClass import MDP
 from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
+import pdb
 
 class LunarLanderMDP(MDP):
     """ Class for Lunar Lander MDP. """
 
-    def __init__(self, goal_predicate=None, render=False):
+    def __init__(self, render=False):
         """
         Args:
-            goal_predicate (Predicate): f(s) -> {0, 1}
             render (bool)
         """
         self.env_name = "LunarLander-v2"
         self.env = gym.make(self.env_name)
-        self.goal_predicate = goal_predicate if goal_predicate is not None else self.default_goal_predicate()
         self.render = render
 
         # Each observation from env.step(action) is a tuple of the form state, reward, done, {}
@@ -48,8 +47,10 @@ class LunarLanderMDP(MDP):
         # Sparse reward function
         if self.positive_reward_predicate().is_true(self.next_state):
             print("\nHit goal state, getting 100. points!")
-            self.next_state.is_terminal = True
+            self.next_state.set_terminal(True)
             return 100.
+        elif self.next_state.is_out_of_frame():
+            return -500.
         elif self.negative_reward_predicate().is_true(self.next_state):
             # print("\nHit bad termination, getting -100 points =(")
             return -100.
@@ -66,7 +67,7 @@ class LunarLanderMDP(MDP):
         return Predicate(
             func=lambda s: abs(s.x) < 0.2
                        and abs(s.y) < 0.01
-                       and abs(s.xdot) < 0.1
+                       # and abs(s.xdot) < 0.1
                        and abs(s.ydot) < 0.01
                        and abs(s.theta) < 0.1
         )

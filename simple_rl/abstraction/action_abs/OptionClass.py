@@ -6,6 +6,7 @@ import random
 from sklearn import svm
 import numpy as np
 import pdb
+from copy import deepcopy
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
@@ -247,7 +248,10 @@ class Option(object):
 
 			action = self.solver.act(state.features(), self.solver.epsilon)
 			reward, next_state = mdp.execute_agent_action(action)
-			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+			augmented_reward = deepcopy(reward)
+			if self.is_term_true(next_state):
+				augmented_reward += 50.  # TODO: pass the subgoal_reward from SkillChainingClass
+				self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
 			self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 			# Epsilon decay
