@@ -186,6 +186,26 @@ def plot_replay_buffer_size(option):
     plt.savefig('{}_replay_buffer_size.png'.format(option.name))
     plt.close()
 
+def visualize_replay_buffer(option):
+    states = [experience[0] for experience in option.solver.replay_buffer.memory]
+    rewards = [experience[2] for experience in option.solver.replay_buffer.memory]
+    x_positions = [state[0] for state in states]
+    y_positions = [state[1] for state in states]
+    sizes = [6. if reward <= 0 else 24. for reward in rewards]
+    plt.figure()
+    plt.scatter(x_positions, y_positions, s=sizes)
+    plt.xlabel("x")
+    plt.ylabel("y")
+
+    plt.xlim((0., 1.))
+    plt.ylim((0., 1.))
+    plt.gca().invert_yaxis()
+
+    plt.title("{} replay buffer".format(option.name))
+    plt.savefig("{}_replay_buffer".format(option.name))
+    plt.close()
+
+
 def plot_num_learning_updates(option):
     plt.figure()
     plt.plot(range(len(option.num_learning_updates_dqn)), option.num_learning_updates_dqn)

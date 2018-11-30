@@ -189,6 +189,15 @@ class Option(object):
 			state, a, r, s_prime = experience.serialize()
 			self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
 
+		# TODO: Experimental
+		# We only see 1 positive reward transition for each trajectory (which can be as long as 15000 steps)
+		# To increase the probability of samping the positive reward transition, I am adding that transition
+		# multiple times to the replay buffer
+		for _ in range(2500):
+			experience = experience_buffer[-1]
+			state, action, reward, next_state = experience.serialize()
+			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+
 	def update_trained_option_policy(self, experience_buffer):
 		"""
 		If we hit the termination set of a trained option, we may want to update its policy.
@@ -263,9 +272,17 @@ class Option(object):
 			reward, next_state = mdp.execute_agent_action(action)
 			augmented_reward = deepcopy(reward)
 
-			# If we reach the current opion's subgoal,
+			# If we reach the current option's subgoal,
 			if self.is_term_true(next_state):
+				# print("\rEntered the termination set of {}".format(self.name))
 				augmented_reward += 2000. # TODO: pass the subgoal_reward from SkillChainingClass
+				# TODO: Experimental
+				# We only see 1 positive reward transition for each trajectory (which can be as long as 15000 steps)
+				# To increase the probability of sampling the positive reward transition, I am adding that transition
+				# multiple times to the replay buffer
+				# for _ in range(10):
+				# 	self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
+
 			if not self.pretrained:
 				self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
 			# TODO: Unclear if I shold also update the global DQN with the augmented reward or not
