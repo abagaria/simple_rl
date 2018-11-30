@@ -4,6 +4,8 @@ from collections import namedtuple, deque
 import gym
 import matplotlib.pyplot as plt
 import seaborn as sns
+sns.set()
+from copy import deepcopy
 
 import torch.optim as optim
 
@@ -20,7 +22,7 @@ GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
 LR = 5e-4  # learning rate
 UPDATE_EVERY = 1  # how often to update the network
-NUM_EPISODES = 2000
+NUM_EPISODES = 200
 NUM_STEPS = 1000
 
 EPS_START = 1.0
@@ -206,9 +208,10 @@ class ReplayBuffer:
             seed (int): random seed
         """
         self.action_size = action_size
-        self.memory = deque(maxlen=buffer_size)
+        self.negative_memory = deque(maxlen=buffer_size)
+        self.positive_memory = deque(maxlen=10000)
         self.batch_size = batch_size
-        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done", "priority"])
         self.seed = random.seed(seed)
 
     def add(self, state, action, reward, next_state, done):
@@ -217,16 +220,28 @@ class ReplayBuffer:
         Args:
             state (np.array): We add numpy arrays from gym env to the buffer, but sampling from buffer returns tensor
             action (int)
-            reward (float_
+            reward (float)
             next_state (np.array)
             done (bool)
         """
-        e = self.experience(state, action, reward, next_state, done)
-        self.memory.append(e)
+        priority = reward > 0
+        e = self.experience(state, action, reward, next_state, done, priority)
+        if priority:
+            self.positive_memory.append(e)
+        else:
+            self.negative_memory.append(e)
 
     def sample(self):
         """Randomly sample a batch of experiences from memory."""
-        experiences = random.sample(self.memory, k=self.batch_size)
+        num_positive_transitions = max(self.batch_size // 10, len(self.positive_memory))
+        num_negative_transitions = self.batch_size - num_positive_transitions
+
+        # Instead of uniform random sampling from the replay buffer, in prioritized sampling we will
+        # always sample a fraction of positive transitions from the buffer
+        positive_experiences = random.sample(self.positive_memory, k=num_positive_transitions)
+        negative_experiences = random.sample(self.negative_memory, k=num_negative_transitions)
+        assert type(positive_experiences) == type(negative_experiences) == list, "Expected lists, got {}".format(type(positive_experiences), type(negative_experiences))
+        experiences = positive_experiences + negative_experiences
 
         states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
         actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(device)
@@ -238,36 +253,35 @@ class ReplayBuffer:
 
     def __len__(self):
         """Return the current size of internal memory."""
-        return len(self.memory)
+        return len(self.positive_memory) + len(self.negative_memory)
 
-def train(agent, env, episodes, steps):
+def train(agent, mdp, episodes, steps):
     per_episode_scores = []
-    last_100_scores = deque(maxlen=100)
+    last_10_scores = deque(maxlen=10)
 
     for episode in range(episodes):
-        state = env.reset()
+        mdp.reset()
+        state = deepcopy(mdp.init_state)
         score = 0.
-        for step in range(steps):
-            action = agent.act(state, agent.epsilon)
-            next_state, reward, done, _ = env.step(action)
-            agent.step(state, action, reward, next_state, done)
+        while not state.is_terminal():
+            action = agent.act(state.features(), agent.epsilon)
+            reward, next_state = mdp.execute_agent_action(action)
+            agent.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
             agent.update_epsilon()
             state = next_state
             score += reward
-            if done:
-                break
-        last_100_scores.append(score)
+        last_10_scores.append(score)
         per_episode_scores.append(score)
 
-        print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)), end="")
-        if episode % 100 == 0:
-            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
+        print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)), end="")
+        if episode % 10 == 0:
+            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)))
 
-        if np.mean(last_100_scores) >= 200.0:
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
-                                                                                         np.mean(last_100_scores)))
-            torch.save(agent.policy_network.state_dict(), 'checkpoint.pth')
-            break
+        # if np.mean(last_100_scores) >= 200.0:
+        #     print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
+        #                                                                                  np.mean(last_100_scores)))
+        #     torch.save(agent.policy_network.state_dict(), 'checkpoint.pth')
+        #     break
     return per_episode_scores
 
 def test_forward_pass(dqn_agent, env):
@@ -285,24 +299,18 @@ def test_forward_pass(dqn_agent, env):
 
     env.close()
 
-def main(num_training_episodes=NUM_EPISODES, to_plot=False):
-    env = gym.make('LunarLander-v2')
-
-    # env.seed(RANDOM_SEED)
-
-    dqn_agent = DQNAgent(state_size=env.observation_space.shape[0], action_size=env.action_space.n, seed=RANDOM_SEED)
-    episode_scores = train(dqn_agent, env, num_training_episodes, NUM_STEPS)
-
-    if to_plot:
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        plt.plot(np.arange(len(episode_scores)), episode_scores)
-        plt.ylabel('Score')
-        plt.xlabel('Episode #')
-        plt.savefig('learning_curve.png')
-        plt.close()
-
-    return episode_scores
+from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
 
 if __name__ == '__main__':
-    baseline_scores = main()
+    pinball_mdp = PinballMDP(noise=0., episode_length=1000, render=False)
+    state_space_size = pinball_mdp.init_state.state_space_size()
+    dqn_agent = DQNAgent(state_size=state_space_size, action_size=len(pinball_mdp.actions), seed=RANDOM_SEED)
+    episode_scores = train(dqn_agent, env, NUM_EPISODES, NUM_STEPS)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    plt.plot(np.arange(len(episode_scores)), episode_scores)
+    plt.ylabel('Score')
+    plt.xlabel('Episode #')
+    plt.savefig('learning_curve.png')
+    plt.close()
