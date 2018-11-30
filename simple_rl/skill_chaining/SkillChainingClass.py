@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=2000.0, subgoal_hits=5):
+                 buffer_length=25, subgoal_reward=2000.0, subgoal_hits=3):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -135,7 +135,7 @@ class SkillChaining(object):
         assert isinstance(experience[2], float) or isinstance(experience[2], int), "Expected 3rd element to be reward (float), got {}".format(experience[2])
         return float(experience[2])
 
-    def skill_chaining(self, num_episodes=1000, num_steps=1000):
+    def skill_chaining(self, num_episodes=250, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
