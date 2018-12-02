@@ -79,8 +79,8 @@ class Option(object):
 		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), 0, name=name)
 		self.global_solver = global_solver
 
-		self.solver.policy_network.load_state_dict(global_solver.policy_network.state_dict())
-		self.solver.target_network.load_state_dict(self.global_solver.target_network.state_dict())
+		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
+		self.solver.target_network.initialize_with_bigger_network(self.global_solver.target_network)
 
 		self.initiation_classifier = svm.OneClassSVM(nu=0.01)
 
@@ -180,8 +180,8 @@ class Option(object):
 
 	def initialize_option_policy(self):
 		# Initialize the local DQN's policy with the weights of the global DQN
-		self.solver.policy_network.load_state_dict(self.global_solver.policy_network.state_dict())
-		self.solver.target_network.load_state_dict(self.global_solver.target_network.state_dict())
+		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
+		self.solver.target_network.initialize_with_bigger_network(self.global_solver.target_network)
 
 		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
 		experience_buffer = self.experience_buffer.reshape(-1)

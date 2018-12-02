@@ -67,6 +67,11 @@ class PinballMDP(MDP):
         """
         return Predicate(func=lambda s: self.domain.environment.episode_ended())
 
+    @staticmethod
+    def is_primitive_action(action):
+        assert action >= 0, "Action cannot be negative {}".format(action)
+        return action < 5
+
     def __str__(self):
         return "RlPy_Pinball_Domain"
 

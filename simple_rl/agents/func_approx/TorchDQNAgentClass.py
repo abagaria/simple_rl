@@ -66,12 +66,51 @@ class QNetwork(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
 
+    def initialize_with_bigger_network(self, bigger_net):
+        """
+        Given a policy network or target network from the global DQN, initialize the corresponding option DQN
+        Args:
+            bigger_net (QNetwork): Outputs q values over larger number of actions
+        """
+        for local_param, global_param in zip(self.fc1.parameters(), bigger_net.fc1.parameters()):
+            local_param.data.copy_(global_param)
+        for local_param, global_param in zip(self.fc2.parameters(), bigger_net.fc2.parameters()):
+            local_param.data.copy_(global_param)
+
+        num_original_actions = 5 # TODO: Assuming that we are in pinball domain
+        self.fc3.weight.data.copy_(bigger_net.fc3.weight[:num_original_actions, :])
+        self.fc3.bias.data.copy_(bigger_net.fc3.bias[:num_original_actions])
+
+        assert self.fc3.out_features == 5, "Expected Pinball with 5 actions, not {} ".format(self.fc3.out_features)
+
+    def initialize_with_smaller_network(self, smaller_net):
+        """
+        Given a DQN over K actions, create a DQN over K + 1 actions. This is needed when we augment the
+        MDP with a new action in the form of a learned option.
+        Args:
+            smaller_net (QNetwork)
+        """
+        for my_param, source_param in zip(self.fc1.parameters(), smaller_net.fc1.parameters()):
+            my_param.data.copy_(source_param)
+        for my_param, source_param in zip(self.fc2.parameters(), smaller_net.fc2.parameters()):
+            my_param.data.copy_(source_param)
+
+        smaller_num_labels = smaller_net.fc3.out_features
+        self.fc3.weight[:smaller_num_labels, :].data.copy_(smaller_net.fc3.weight)
+        self.fc3.bias[:smaller_num_labels].data.copy_(smaller_net.fc3.bias)
+
+        new_action_idx = self.fc3.out_features - 1
+        self.fc3.weight[new_action_idx].data.copy_(torch.max(smaller_net.fc3.weight, dim=0)[0])
+        self.fc3.bias[new_action_idx].data.copy_(torch.max(smaller_net.fc3.bias, dim=0)[0])
+
 class DQNAgent(Agent):
     """Interacts with and learns from the environment."""
 
-    def __init__(self, state_size, action_size, seed, name="DQN-Agent"):
+    def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent"):
         self.state_size = state_size
         self.action_size = action_size
+        self.num_original_actions = num_original_actions
+        self.trained_options = trained_options
         self.seed = random.seed(seed)
 
         # Q-Network
@@ -110,6 +149,10 @@ class DQNAgent(Agent):
         with torch.no_grad():
             action_values = self.policy_network(state)
         self.policy_network.train()
+
+        impossible_option_idx = [idx for idx, option in enumerate(self.trained_options) if not option.is_init_true(state)]
+        action_values[impossible_option_idx] = torch.min(action_values, dim=0)[0]
+        
 
         # Epsilon-greedy action selection
         if random.random() > self.epsilon:

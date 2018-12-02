@@ -70,9 +70,20 @@ class SkillChaining(object):
         if untrained_option not in self.trained_options:
             self.trained_options.append(untrained_option)
 
-        # TODO: Eventually need to add trained options to the DQN
-        # if untrained_option not in self.mdp.actions:
-        #     self.mdp.actions.append(untrained_option)
+        # Augment the global DQN with the newly trained option
+        num_actions = len(self.mdp.actions) + len(self.trained_options)
+        num_state_dimensions = self.mdp.init_state.state_space_size()
+        new_global_agent = DQNAgent(num_state_dimensions, num_actions, seed=0, name=self.global_solver.name)
+        new_global_agent.replay_buffer = self.global_solver.replay_buffer
+
+        new_global_agent.policy_network.initialize_with_smaller_network(self.global_solver.policy_network)
+        new_global_agent.target_network.initialize_with_smaller_network(self.global_solver.target_network)
+
+        self.global_solver = new_global_agent
+
+        # Update the global solver of all previously trained options
+        for trained_option in self.trained_options:
+            trained_option.global_solver = new_global_agent
 
         # Create new option whose termination is the initiation of the option we just trained
         name = "option_{}".format(str(len(self.trained_options)))
@@ -101,12 +112,17 @@ class SkillChaining(object):
         Returns:
             experience (tuple): (s, a, r, s')
         """
-        if current_option:
-            action, reward, next_state = current_option.execute_option_in_mdp(state, self.mdp)
-            return state, action, reward, next_state
+        # if current_option:
+        #     action, reward, next_state = current_option.execute_option_in_mdp(state, self.mdp)
+        #     return state, action, reward, next_state
 
         action = self.global_solver.act(state.features(), self.global_solver.epsilon)
-        reward, next_state = self.mdp.execute_agent_action(action)
+        if self.mdp.is_primitive_action(action):
+            reward, next_state = self.mdp.execute_agent_action(action)
+        else: # Selected option
+            option_idx = action - len(self.mdp.actions) - 1
+            selected_option = self.trained_options[option_idx] # type: Option
+            reward, next_state = selected_option.execute_option_in_mdp(state, self.mdp)
         self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
         self.global_solver.update_epsilon()
         return state, action, reward, next_state
@@ -270,7 +286,7 @@ def construct_pinball_mdp():
 if __name__ == '__main__':
     overall_mdp = construct_pinball_mdp()
     state_space_size = overall_mdp.init_state.state_space_size()
-    solver = DQNAgent(state_space_size, len(overall_mdp.actions), 0)
+    solver = DQNAgent(state_space_size, len(overall_mdp.actions), 0, name="GlobalDQN")
     buffer_len = 30
 
     parser = argparse.ArgumentParser()
