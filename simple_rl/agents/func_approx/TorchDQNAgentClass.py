@@ -4,6 +4,7 @@ from collections import namedtuple, deque
 import gym
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pdb
 
 import torch.optim as optim
 
@@ -150,14 +151,20 @@ class DQNAgent(Agent):
             action_values = self.policy_network(state)
         self.policy_network.train()
 
-        impossible_option_idx = [idx for idx, option in enumerate(self.trained_options) if not option.is_init_true(state)]
-        action_values[impossible_option_idx] = torch.min(action_values, dim=0)[0]
-        
+        # Argmax only over actions that can be implemented from the current state
+        impossible_option_idx = [idx for idx, option in enumerate(self.trained_options) if (not option.is_init_true(state.cpu().data.numpy()[0]))
+                                 or option.is_term_true(state.cpu().data.numpy()[0])]
+        impossible_action_idx = map(lambda x: x + self.num_original_actions, impossible_option_idx)
+        for impossible_idx in impossible_action_idx:
+            action_values[0][impossible_idx] = torch.min(action_values, dim=1)[0] - 1.
 
+        action_values = action_values.cpu().data.numpy()
         # Epsilon-greedy action selection
         if random.random() > self.epsilon:
-            return np.argmax(action_values.cpu().data.numpy())
-        return random.choice(np.arange(self.action_size))
+            return np.argmax(action_values)
+
+        # Not allowing epsilon-greedy to select an option as a random action
+        return random.choice(np.arange(self.num_original_actions))
 
     def get_value(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)

@@ -13,7 +13,7 @@ from simple_rl.mdp.StateClass import State
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
-from simple_rl.tasks.pinball.PinballStateClass import PinballState
+from simple_rl.tasks.pinball.PinballStateClass import PinballState, PositionalPinballState
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -76,7 +76,7 @@ class Option(object):
 		else:
 			self.policy = policy
 
-		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), 0, name=name)
+		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), len(overall_mdp.actions), [], 0, name=name)
 		self.global_solver = global_solver
 
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
@@ -120,6 +120,9 @@ class Option(object):
 	def is_init_true(self, ground_state):
 		if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
 			positional_state = ground_state.convert_to_positional_state()
+			return self.init_predicate.is_true(positional_state)
+		elif isinstance(ground_state, np.ndarray):
+			positional_state = PositionalPinballState(ground_state[0], ground_state[1])
 			return self.init_predicate.is_true(positional_state)
 		return self.init_predicate.is_true(ground_state)
 
@@ -276,16 +279,11 @@ class Option(object):
 			if self.is_term_true(next_state):
 				# print("\rEntered the termination set of {}".format(self.name))
 				augmented_reward += 2000. # TODO: pass the subgoal_reward from SkillChainingClass
-				# TODO: Experimental
-				# We only see 1 positive reward transition for each trajectory (which can be as long as 15000 steps)
-				# To increase the probability of sampling the positive reward transition, I am adding that transition
-				# multiple times to the replay buffer
-				# for _ in range(10):
-				# 	self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
 
 			if not self.pretrained:
 				self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
-			# TODO: Unclear if I shold also update the global DQN with the augmented reward or not
+
+			# Note: We are not using the option augmented subgoal reward while making off-policy updates to global DQN
 			self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 			# Epsilon decay

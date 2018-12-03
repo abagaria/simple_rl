@@ -73,7 +73,7 @@ class SkillChaining(object):
         # Augment the global DQN with the newly trained option
         num_actions = len(self.mdp.actions) + len(self.trained_options)
         num_state_dimensions = self.mdp.init_state.state_space_size()
-        new_global_agent = DQNAgent(num_state_dimensions, num_actions, seed=0, name=self.global_solver.name)
+        new_global_agent = DQNAgent(num_state_dimensions, num_actions, len(self.original_actions), self.trained_options, seed=0, name=self.global_solver.name)
         new_global_agent.replay_buffer = self.global_solver.replay_buffer
 
         new_global_agent.policy_network.initialize_with_smaller_network(self.global_solver.policy_network)
@@ -117,15 +117,18 @@ class SkillChaining(object):
         #     return state, action, reward, next_state
 
         action = self.global_solver.act(state.features(), self.global_solver.epsilon)
+        option_chosen_action = action
         if self.mdp.is_primitive_action(action):
             reward, next_state = self.mdp.execute_agent_action(action)
         else: # Selected option
-            option_idx = action - len(self.mdp.actions) - 1
+            option_idx = action - len(self.mdp.actions)
             selected_option = self.trained_options[option_idx] # type: Option
-            reward, next_state = selected_option.execute_option_in_mdp(state, self.mdp)
+            # We are going to use the primitive action chosen by the option's DQN solver as our current experience
+            # because this experience is used to initialize the policy of an untrained option
+            option_chosen_action, reward, next_state = selected_option.execute_option_in_mdp(state, self.mdp)
         self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
         self.global_solver.update_epsilon()
-        return state, action, reward, next_state
+        return state, option_chosen_action, reward, next_state
 
     def find_option_for_state(self, state):
         """
@@ -286,7 +289,7 @@ def construct_pinball_mdp():
 if __name__ == '__main__':
     overall_mdp = construct_pinball_mdp()
     state_space_size = overall_mdp.init_state.state_space_size()
-    solver = DQNAgent(state_space_size, len(overall_mdp.actions), 0, name="GlobalDQN")
+    solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=0, name="GlobalDQN")
     buffer_len = 30
 
     parser = argparse.ArgumentParser()
