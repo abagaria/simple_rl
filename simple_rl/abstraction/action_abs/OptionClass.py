@@ -130,6 +130,9 @@ class Option(object):
 		if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
 			positional_state = ground_state.convert_to_positional_state()
 			return self.term_predicate.is_true(positional_state)
+		elif isinstance(ground_state, np.ndarray):
+			positional_state = PositionalPinballState(ground_state[0], ground_state[1])
+			return self.term_predicate.is_true(positional_state)
 		return self.term_predicate.is_true(ground_state) # or self.term_flag or self.term_prob > random.random()
 
 	def act(self, ground_state):

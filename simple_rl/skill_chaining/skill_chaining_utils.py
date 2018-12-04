@@ -150,6 +150,17 @@ def visualize_option_starting_and_ending_points(option):
     plt.savefig('starting_ending_{}.png'.format(option.name))
     plt.close()
 
+def visualize_global_dqn_execution_points(states):
+    plt.figure()
+    x_execution_states = [state.x for state in states]
+    y_execution_states = [state.y for state in states]
+    plt.plot(x_execution_states, y_execution_states, '.')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('Global DQN Execution States')
+    plt.savefig("global_dqn_execution_states.png")
+    plt.close()
+
 def visualize_reason_for_option_termination(option):
     init_trues = [s for s in option.ending_points if not option.is_init_true(s)]
     term_trues = [s for s in option.ending_points if option.is_term_true(s)]

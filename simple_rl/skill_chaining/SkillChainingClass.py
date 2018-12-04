@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=2000.0, subgoal_hits=3):
+                 buffer_length=25, subgoal_reward=2000.0, subgoal_hits=2):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -49,6 +49,9 @@ class SkillChaining(object):
         # If we are given pretrained options, we will just use them as trained options
         if len(pretrained_options) > 0:
             self.trained_options = pretrained_options
+
+        # Debug variables
+        self.global_execution_states = []
 
     def _train_untrained_option(self, untrained_option):
         """
@@ -102,12 +105,18 @@ class SkillChaining(object):
                                                                 num_subgoal_hits=self.num_goal_hits_before_training)
         return new_untrained_option
 
-    def take_action(self, state, current_option):
+    def make_off_policy_updates_for_options(self, state, action, reward, next_state):
+        for option in self.trained_options:
+            if option.is_term_true(state):
+                option.solver.step(state.features(), action, reward + self.subgoal_reward, next_state.features(), next_state.is_terminal())
+            elif option.is_init_true(state):
+                option.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+
+    def take_action(self, state):
         """
 
         Args:
             state (State)
-            current_option (Option)
 
         Returns:
             experience (tuple): (s, a, r, s')
@@ -120,6 +129,8 @@ class SkillChaining(object):
         option_chosen_action = action
         if self.mdp.is_primitive_action(action):
             reward, next_state = self.mdp.execute_agent_action(action)
+            self.make_off_policy_updates_for_options(state, action, reward, next_state)
+            self.global_execution_states.append(state)
         else: # Selected option
             option_idx = action - len(self.mdp.actions)
             selected_option = self.trained_options[option_idx] # type: Option
@@ -154,7 +165,7 @@ class SkillChaining(object):
         assert isinstance(experience[2], float) or isinstance(experience[2], int), "Expected 3rd element to be reward (float), got {}".format(experience[2])
         return float(experience[2])
 
-    def skill_chaining(self, num_episodes=250, num_steps=1000):
+    def skill_chaining(self, num_episodes=20, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -181,8 +192,7 @@ class SkillChaining(object):
 
             # for _ in range(num_steps):
             while not state.is_terminal():
-                current_option = self.find_option_for_state(state) # type: Option
-                experience = self.take_action(state, current_option)
+                experience = self.take_action(state)
 
                 experience_buffer.append(experience)
                 state_buffer.append(state)
@@ -191,7 +201,7 @@ class SkillChaining(object):
                 state = self.get_next_state_from_experience(experience)
                 score += self.get_reward_from_experience(experience)
 
-                if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 6:
+                if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 4:
                     uo_episode_terminated = True
                     untrained_option.num_goal_hits += 1
                     print("\nHit the termination condition of {} {} times so far".format(untrained_option, untrained_option.num_goal_hits))
@@ -240,6 +250,7 @@ class SkillChaining(object):
             visualize_option_starting_and_ending_points(option)
             plot_replay_buffer_size(option)
             visualize_replay_buffer(option)
+            visualize_global_dqn_execution_points(self.global_execution_states)
 
     def trained_forward_pass(self, verbose=True):
         """
