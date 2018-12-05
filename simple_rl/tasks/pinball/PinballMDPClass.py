@@ -12,7 +12,7 @@ class PinballMDP(MDP):
     """ Class for pinball domain. """
 
     def __init__(self, noise=0., episode_length=1000, goal_predicate=None, render=False):
-        self.domain = Pinball(noise=noise, episodeCap=episode_length)
+        self.domain = Pinball(noise=noise, episodeCap=episode_length) #, configuration="/home/akhil/git-repos/rlpy/rlpy/Domains/PinballConfigs/pinball_medium.cfg")
         self.render = render
 
         # Each observation from domain.step(action) is a tuple of the form reward, next_state, is_term, possible_actions

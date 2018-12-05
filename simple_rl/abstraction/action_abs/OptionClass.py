@@ -273,29 +273,37 @@ class Option(object):
 			self.num_indirect_updates.append(self.num_times_indirect_update)
 			# ---------------------------------------------------------------------------------
 
-			epsilon = self.solver.epsilon if not self.pretrained else 0.
-			action = self.solver.act(state.features(), epsilon)
-			reward, next_state = mdp.execute_agent_action(action)
-			augmented_reward = deepcopy(reward)
+			option_transitions = []
 
-			# If we reach the current option's subgoal,
-			if self.is_term_true(next_state):
-				# print("\rEntered the termination set of {}".format(self.name))
-				augmented_reward += 2000. # TODO: pass the subgoal_reward from SkillChainingClass
+			while self.is_init_true(state) and not self.is_term_true(state):
 
-			if not self.pretrained:
-				self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
+				epsilon = self.solver.epsilon if not self.pretrained else 0.
+				action = self.solver.act(state.features(), epsilon)
+				reward, next_state = mdp.execute_agent_action(action)
 
-			# Note: We are not using the option augmented subgoal reward while making off-policy updates to global DQN
-			self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+				augmented_reward = deepcopy(reward)
 
-			# Epsilon decay
-			self.solver.update_epsilon()
-			self.global_solver.update_epsilon()
+				# If we reach the current option's subgoal,
+				if self.is_term_true(next_state):
+					print("\rEntered the termination set of {}".format(self.name))
+					augmented_reward += 2000. # TODO: pass the subgoal_reward from SkillChainingClass
+
+				if not self.pretrained:
+					self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
+
+				# Note: We are not using the option augmented subgoal reward while making off-policy updates to global DQN
+				self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+
+				option_transitions.append((state, action, reward, next_state))
+				state = next_state
+
+				# Epsilon decay
+				self.solver.update_epsilon()
+				self.global_solver.update_epsilon()
 
 			self.ending_points.append(state)
 
-			return action, reward, next_state
+			return option_transitions
 
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 

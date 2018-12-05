@@ -90,8 +90,7 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     plt.plot(X0, X1, '.')
 
     for row in range(X.shape[0]):
-        buffer_length = option.buffer_length
-        plt.scatter(X0[row], X1[row], c='k', alpha=(float(row) % buffer_length) / float(buffer_length))
+        plt.scatter(X0[row], X1[row], c='k', alpha=0.5)
 
     if is_pinball_domain:
         plt.xlim((0., 1.))
@@ -143,6 +142,11 @@ def visualize_option_starting_and_ending_points(option):
 
     plt.plot(start_x, start_y, '.', label='start points')
     plt.plot(end_x, end_y, '.', label='end points')
+
+    plt.xlim((0., 1.))
+    plt.ylim((0., 1.))
+    plt.gca().invert_yaxis()
+
     plt.xlabel('x')
     plt.ylabel('y')
     plt.title('{}'.format(option.name))

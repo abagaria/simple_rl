@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=2000.0, subgoal_hits=2):
+                 buffer_length=25, subgoal_reward=2000.0, subgoal_hits=3):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -107,39 +107,47 @@ class SkillChaining(object):
 
     def make_off_policy_updates_for_options(self, state, action, reward, next_state):
         for option in self.trained_options:
-            if option.is_term_true(state):
+            if option.is_term_true(next_state):
                 option.solver.step(state.features(), action, reward + self.subgoal_reward, next_state.features(), next_state.is_terminal())
             elif option.is_init_true(state):
                 option.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
     def take_action(self, state):
         """
-
+        Either take a primitive action from `state` or execute a closed-loop option policy.
         Args:
             state (State)
 
         Returns:
-            experience (tuple): (s, a, r, s')
+            experiences (list): list of (s, a, r, s') tuples
+            reward (float): sum of all rewards accumulated while executing chosen action
+            next_state (State): state we landed in after executing chosen action
         """
-        # if current_option:
-        #     action, reward, next_state = current_option.execute_option_in_mdp(state, self.mdp)
-        #     return state, action, reward, next_state
-
+        # Query the global Q-function to determine optimal action from current state
         action = self.global_solver.act(state.features(), self.global_solver.epsilon)
-        option_chosen_action = action
+
         if self.mdp.is_primitive_action(action):
             reward, next_state = self.mdp.execute_agent_action(action)
             self.make_off_policy_updates_for_options(state, action, reward, next_state)
+            self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+            self.global_solver.update_epsilon()
+
             self.global_execution_states.append(state)
-        else: # Selected option
-            option_idx = action - len(self.mdp.actions)
-            selected_option = self.trained_options[option_idx] # type: Option
-            # We are going to use the primitive action chosen by the option's DQN solver as our current experience
-            # because this experience is used to initialize the policy of an untrained option
-            option_chosen_action, reward, next_state = selected_option.execute_option_in_mdp(state, self.mdp)
-        self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
-        self.global_solver.update_epsilon()
-        return state, option_chosen_action, reward, next_state
+            return [(state, action, reward, next_state)], reward, next_state
+
+        # Selected option
+        option_idx = action - len(self.mdp.actions)
+        selected_option = self.trained_options[option_idx] # type: Option
+        option_transitions = selected_option.execute_option_in_mdp(state, self.mdp)
+
+        option_reward = self.get_reward_from_experiences(option_transitions)
+        next_state = self.get_next_state_from_experiences(option_transitions)
+        augmented_reward = max(-1, option_reward + (selected_option.is_term_true(next_state) * self.subgoal_reward))
+
+        # Add data to train Q(s, o)
+        self.global_solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
+
+        return option_transitions, option_reward, next_state
 
     def find_option_for_state(self, state):
         """
@@ -156,16 +164,36 @@ class SkillChaining(object):
         return None
 
     @staticmethod
-    def get_next_state_from_experience(experience):
-        assert isinstance(experience[-1], State), "Expected last element to be next_state, got {}".format(experience[-1])
-        return experience[-1]
+    def get_next_state_from_experiences(experiences):
+        """
+        Given a list of experiences, fetch the final state encountered.
+        Args:
+            experiences (list): list of (s, a, r, s') tuples
+
+        Returns:
+            next_state (State)
+        """
+        assert isinstance(experiences[-1][-1], State), "Expected last element to be next_state, got {}".format(experiences[-1][-1])
+        return experiences[-1][-1]
 
     @staticmethod
-    def get_reward_from_experience(experience):
-        assert isinstance(experience[2], float) or isinstance(experience[2], int), "Expected 3rd element to be reward (float), got {}".format(experience[2])
-        return float(experience[2])
+    def get_reward_from_experiences(experiences):
+        """
+        Given a list of experiences, fetch the overall reward encountered.
+        Args:
+            experiences (list): list of (s, a, r, s') tuples
 
-    def skill_chaining(self, num_episodes=20, num_steps=1000):
+        Returns:
+            total_reward (float): Sum of all the rewards encountered in `experiences`
+        """
+        total_reward = 0.
+        for experience in experiences:
+            reward = experience[2]
+            assert isinstance(reward, float) or isinstance(reward, int), "Expected {} to be a float/int".format(reward)
+            total_reward += reward
+        return total_reward
+
+    def skill_chaining(self, num_episodes=120, num_steps=1000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -192,14 +220,11 @@ class SkillChaining(object):
 
             # for _ in range(num_steps):
             while not state.is_terminal():
-                experience = self.take_action(state)
-
-                experience_buffer.append(experience)
-                state_buffer.append(state)
-
-                # Update current_state = next_state
-                state = self.get_next_state_from_experience(experience)
-                score += self.get_reward_from_experience(experience)
+                experiences, reward, state = self.take_action(state)
+                score += reward
+                for experience in experiences:
+                    experience_buffer.append(experience)
+                    state_buffer.append(experience[0])
 
                 if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 4:
                     uo_episode_terminated = True
@@ -207,7 +232,9 @@ class SkillChaining(object):
                     print("\nHit the termination condition of {} {} times so far".format(untrained_option, untrained_option.num_goal_hits))
 
                     # Augment the most recent experience with the subgoal reward
-                    experience_buffer[-1] = (experience[0], experience[1], experience[2] + self.subgoal_reward, experience[3])
+                    final_transition = experiences[-1]
+                    experience_buffer[-1] = (final_transition[0], final_transition[1],
+                                             final_transition[2] + self.subgoal_reward, final_transition[3])
                     untrained_option.add_initiation_experience(state_buffer)
                     untrained_option.add_experience_buffer(experience_buffer)
 
@@ -225,8 +252,8 @@ class SkillChaining(object):
 
         return per_episode_scores
 
-
-    def _log_dqn_status(self, episode, last_10_scores):
+    @staticmethod
+    def _log_dqn_status(episode, last_10_scores):
         print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)), end="")
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)))
@@ -294,7 +321,7 @@ def construct_lunar_lander_mdp():
 
 def construct_pinball_mdp():
     from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
-    mdp = PinballMDP(noise=0., episode_length=1000, render=False)
+    mdp = PinballMDP(noise=0., episode_length=1000, render=True)
     return mdp
 
 if __name__ == '__main__':
