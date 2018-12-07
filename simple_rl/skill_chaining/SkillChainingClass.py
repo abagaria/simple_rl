@@ -6,7 +6,7 @@ sys.path = [""] + sys.path
 
 import matplotlib
 matplotlib.use('TkAgg')
-from collections import deque
+from collections import deque, defaultdict
 from copy import deepcopy
 import torch
 import _pickle as pickle
@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=2000.0, subgoal_hits=3):
+                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -52,6 +52,9 @@ class SkillChaining(object):
 
         # Debug variables
         self.global_execution_states = []
+        self.num_option_executions = defaultdict(lambda : [])
+        self.option_rewards = defaultdict(lambda : [])
+        self.option_qvalues = defaultdict(lambda : [])
 
     def _train_untrained_option(self, untrained_option):
         """
@@ -112,11 +115,12 @@ class SkillChaining(object):
             elif option.is_init_true(state):
                 option.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
-    def take_action(self, state):
+    def take_action(self, state, episode_option_executions):
         """
         Either take a primitive action from `state` or execute a closed-loop option policy.
         Args:
             state (State)
+            episode_option_executions (defaultdict)
 
         Returns:
             experiences (list): list of (s, a, r, s') tuples
@@ -128,7 +132,7 @@ class SkillChaining(object):
 
         if self.mdp.is_primitive_action(action):
             reward, next_state = self.mdp.execute_agent_action(action)
-            self.make_off_policy_updates_for_options(state, action, reward, next_state)
+            # self.make_off_policy_updates_for_options(state, action, reward, next_state)
             self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
             self.global_solver.update_epsilon()
 
@@ -147,21 +151,18 @@ class SkillChaining(object):
         # Add data to train Q(s, o)
         self.global_solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
 
+        # Debug logging
+        episode_option_executions[selected_option.name] += 1
+        self.option_rewards[selected_option.name].append(augmented_reward)
+        self.option_qvalues[selected_option.name].append(self.sample_qvalue(selected_option))
+
         return option_transitions, option_reward, next_state
 
-    def find_option_for_state(self, state):
-        """
-        If state is in the initiation set of a trained option, return that trained option
-        Args:
-            state (State)
-
-        Returns:
-            trained_option (Option)
-        """
-        for option in self.trained_options:
-            if option.is_init_true(state):
-                return option
-        return None
+    def sample_qvalue(self, option):
+        option_idx = self.trained_options.index(option)
+        action_idx = len(self.mdp.actions) + option_idx
+        sample_state = option.experience_buffer[5, -1].state
+        return self.global_solver.get_qvalue(sample_state.features(), action_idx)
 
     @staticmethod
     def get_next_state_from_experiences(experiences):
@@ -193,7 +194,7 @@ class SkillChaining(object):
             total_reward += reward
         return total_reward
 
-    def skill_chaining(self, num_episodes=120, num_steps=1000):
+    def skill_chaining(self, num_episodes=500, num_steps=100000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -217,10 +218,10 @@ class SkillChaining(object):
             state = deepcopy(self.mdp.init_state)
             experience_buffer = deque([], maxlen=self.buffer_length)
             state_buffer = deque([], maxlen=self.buffer_length)
+            episode_option_executions = defaultdict(lambda : 0)
 
-            # for _ in range(num_steps):
-            while not state.is_terminal():
-                experiences, reward, state = self.take_action(state)
+            for _ in range(num_steps):
+                experiences, reward, state = self.take_action(state, episode_option_executions)
                 score += reward
                 for experience in experiences:
                     experience_buffer.append(experience)
@@ -247,17 +248,17 @@ class SkillChaining(object):
             last_10_scores.append(score)
             per_episode_scores.append(score)
 
-            if self._log_dqn_status(episode, last_10_scores):
+            if self._log_dqn_status(episode, last_10_scores, episode_option_executions):
                 break
 
         return per_episode_scores
 
-    @staticmethod
-    def _log_dqn_status(episode, last_10_scores):
+    def _log_dqn_status(self, episode, last_10_scores, episode_option_executions):
         print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)), end="")
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)))
-
+        for trained_option in self.trained_options:  # type: Option
+            self.num_option_executions[trained_option.name].append(episode_option_executions[trained_option.name])
         return False
 
     def save_all_dqns(self):
@@ -290,17 +291,25 @@ class SkillChaining(object):
         state = deepcopy(self.mdp.init_state)
         overall_reward = 0.
         self.mdp.render = True
+
         while not state.is_terminal():
-            current_option = self.find_option_for_state(state)
-            if current_option:
-                action = current_option.solver.act(state.features(), eps=0.)
-                if verbose: print("Taking {}".format(current_option.name))
-            else:
-                action = self.global_solver.act(state.features(), eps=0.)
-                if verbose: print("Taking action {}".format(action))
+            action = self.global_solver.act(state.features(), eps=0.)
+
             sys.stdout.flush()
-            reward, next_state = self.mdp.execute_agent_action(action)
-            overall_reward += reward
+            if self.mdp.is_primitive_action(action):
+                if verbose: print("Taking action {}".format(action))
+                reward, next_state = self.mdp.execute_agent_action(action)
+                overall_reward += reward
+            else:
+                option_idx = action - len(self.mdp.actions)
+                selected_option = self.trained_options[option_idx]  # type: Option
+                if verbose: print("Taking {}".format(selected_option))
+                option_transitions = selected_option.execute_option_in_mdp(state, self.mdp)
+
+                option_reward = self.get_reward_from_experiences(option_transitions)
+                next_state = self.get_next_state_from_experiences(option_transitions)
+                overall_reward += option_reward
+
             state = next_state
 
         self.mdp.render = False
@@ -328,7 +337,7 @@ if __name__ == '__main__':
     overall_mdp = construct_pinball_mdp()
     state_space_size = overall_mdp.init_state.state_space_size()
     solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=0, name="GlobalDQN")
-    buffer_len = 30
+    buffer_len = 20
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
