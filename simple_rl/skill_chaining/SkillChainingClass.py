@@ -56,25 +56,15 @@ class SkillChaining(object):
         self.option_rewards = defaultdict(lambda : [])
         self.option_qvalues = defaultdict(lambda : [])
 
-    def _train_untrained_option(self, untrained_option):
+    def _augment_agent_with_new_option(self, newly_trained_option):
         """
         Train the current untrained option and initialize a new one to target.
         Args:
-            untrained_option (Option)
-
-        Returns:
-            new_untrained_option (Option)
+            newly_trained_option (Option)
         """
-        print("\nTraining the initiation set and policy for {}.".format(untrained_option.name))
-        # Train the initiation set classifier for the option
-        untrained_option.train_initiation_classifier()
-
-        # Update the solver of the untrained option on all the states in its experience
-        untrained_option.initialize_option_policy()
-
         # Add the trained option to the action set of the global solver
-        if untrained_option not in self.trained_options:
-            self.trained_options.append(untrained_option)
+        if newly_trained_option not in self.trained_options:
+            self.trained_options.append(newly_trained_option)
 
         # Augment the global DQN with the newly trained option
         num_actions = len(self.mdp.actions) + len(self.trained_options)
@@ -90,23 +80,6 @@ class SkillChaining(object):
         # Update the global solver of all previously trained options
         for trained_option in self.trained_options:
             trained_option.global_solver = new_global_agent
-
-        # Create new option whose termination is the initiation of the option we just trained
-        name = "option_{}".format(str(len(self.trained_options)))
-
-        print("Creating {}".format(name))
-
-        # plot_initiation_examples(untrained_option)
-        plot_one_class_initiation_classifier(untrained_option)
-
-        # Using the global init_state as the init_state for all child options
-        new_untrained_option = untrained_option.create_child_option(init_state=deepcopy(self.mdp.init_state),
-                                                                actions=self.original_actions,
-                                                                new_option_name=name,
-                                                                global_solver=self.global_solver,
-                                                                buffer_length=self.buffer_length,
-                                                                num_subgoal_hits=self.num_goal_hits_before_training)
-        return new_untrained_option
 
     def make_off_policy_updates_for_options(self, state, action, reward, next_state):
         for option in self.trained_options:
@@ -194,12 +167,14 @@ class SkillChaining(object):
             total_reward += reward
         return total_reward
 
-    def skill_chaining(self, num_episodes=500, num_steps=100000):
+    def skill_chaining(self, num_episodes=120, num_steps=100000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
                              name='overall_goal_policy', term_prob=0., global_solver=self.global_solver,
-                             buffer_length=self.buffer_length, num_subgoal_hits_required=self.num_goal_hits_before_training)
+                             buffer_length=self.buffer_length,
+                             num_subgoal_hits_required=self.num_goal_hits_before_training,
+                             subgoal_reward=self.subgoal_reward)
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
@@ -229,19 +204,13 @@ class SkillChaining(object):
 
                 if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 4:
                     uo_episode_terminated = True
-                    untrained_option.num_goal_hits += 1
-                    print("\nHit the termination condition of {} {} times so far".format(untrained_option, untrained_option.num_goal_hits))
 
-                    # Augment the most recent experience with the subgoal reward
-                    final_transition = experiences[-1]
-                    experience_buffer[-1] = (final_transition[0], final_transition[1],
-                                             final_transition[2] + self.subgoal_reward, final_transition[3])
-                    untrained_option.add_initiation_experience(state_buffer)
-                    untrained_option.add_experience_buffer(experience_buffer)
-
-                    if untrained_option.num_goal_hits >= self.num_goal_hits_before_training:
-                        untrained_option = self._train_untrained_option(untrained_option)
-
+                    if untrained_option.train(experience_buffer, state_buffer):
+                        plot_one_class_initiation_classifier(untrained_option)
+                        self._augment_agent_with_new_option(untrained_option)
+                        new_untrained_option = untrained_option.get_child_option(len(self.trained_options))
+                        untrained_option = new_untrained_option
+                        
                 if state.is_out_of_frame() or state.is_terminal():
                     break
 
@@ -304,10 +273,7 @@ class SkillChaining(object):
                 option_idx = action - len(self.mdp.actions)
                 selected_option = self.trained_options[option_idx]  # type: Option
                 if verbose: print("Taking {}".format(selected_option))
-                option_transitions = selected_option.execute_option_in_mdp(state, self.mdp)
-
-                option_reward = self.get_reward_from_experiences(option_transitions)
-                next_state = self.get_next_state_from_experiences(option_transitions)
+                option_reward, next_state = selected_option.trained_option_execution(state, self.mdp)
                 overall_reward += option_reward
 
             state = next_state

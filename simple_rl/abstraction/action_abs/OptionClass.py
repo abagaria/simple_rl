@@ -40,7 +40,8 @@ class Experience(object):
 class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
-				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False, num_subgoal_hits_required=10):
+				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False,
+				 num_subgoal_hits_required=3, subgoal_reward=5000.):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -56,6 +57,7 @@ class Option(object):
 			buffer_length (int)
 			pretrained (bool)
 			num_subgoal_hits_required (int)
+			subgoal_reward (float)
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -66,6 +68,7 @@ class Option(object):
 		self.buffer_length = buffer_length
 		self.pretrained = pretrained
 		self.num_subgoal_hits_required = num_subgoal_hits_required
+		self.subgoal_reward = subgoal_reward
 
 		# if init_state.is_terminal() and not self.is_term_true(init_state):
 		init_state.set_terminal(False)
@@ -144,6 +147,21 @@ class Option(object):
 	def set_name(self, new_name):
 		self.name = new_name
 
+	def get_child_option(self, num_trained_options):
+		# Create new option whose termination is the initiation of the option we just trained
+		name = "option_{}".format(str(num_trained_options))
+		print("Creating {}".format(name))
+
+		# Using the global init_state as the init_state for all child options
+		untrained_option = self.create_child_option(init_state=deepcopy(self.overall_mdp.init_state),
+													actions=self.overall_mdp.actions,
+													new_option_name=name,
+													global_solver=self.global_solver,
+													buffer_length=self.buffer_length,
+													num_subgoal_hits=self.num_subgoal_hits_required,
+													subgoal_reward=self.subgoal_reward)
+		return untrained_option
+
 	def add_initiation_experience(self, states_queue):
 		"""
 		SkillChaining class will give us a queue of states that correspond to its most recently successful experience.
@@ -204,6 +222,31 @@ class Option(object):
 			state, action, reward, next_state = experience.serialize()
 			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
+	def train(self, experience_buffer, state_buffer):
+		"""
+		Called every time the agent hits the current option's termination set.
+		Args:
+			experience_buffer (deque)
+			state_buffer (deque)
+
+		Returns:
+			trained (bool): whether or not we actually trained this option
+		"""
+		self.num_goal_hits += 1
+
+		# Augment the most recent experience with the subgoal reward
+		final_transition = experience_buffer[-1]
+		experience_buffer[-1] = (final_transition[0], final_transition[1],
+								 final_transition[2] + self.subgoal_reward, final_transition[3])
+		self.add_initiation_experience(state_buffer)
+		self.add_experience_buffer(experience_buffer)
+
+		if self.num_goal_hits >= self.num_subgoal_hits_required:
+			self.train_initiation_classifier()
+			self.initialize_option_policy()
+			return True
+		return False
+
 	def update_trained_option_policy(self, experience_buffer):
 		"""
 		If we hit the termination set of a trained option, we may want to update its policy.
@@ -219,12 +262,13 @@ class Option(object):
 			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 	def create_child_option(self, init_state, actions, new_option_name, global_solver, buffer_length, num_subgoal_hits,
-							default_q=0., pretrained=False):
+							default_q=0., pretrained=False, subgoal_reward=5000.):
 		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
 		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
 								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
 								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length,
-								  pretrained=pretrained, num_subgoal_hits_required=num_subgoal_hits)
+								  pretrained=pretrained, num_subgoal_hits_required=num_subgoal_hits,
+								  subgoal_reward=subgoal_reward)
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):
