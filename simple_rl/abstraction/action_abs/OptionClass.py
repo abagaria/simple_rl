@@ -70,6 +70,12 @@ class Option(object):
 		self.num_subgoal_hits_required = num_subgoal_hits_required
 		self.subgoal_reward = subgoal_reward
 
+		# List of options that have the current option's initiation set as their termination set
+		self.child_options = []
+
+		# Boolean tracking whether or not the current option's init set has been trained + policy has been initialized
+		self.trained = False
+
 		# if init_state.is_terminal() and not self.is_term_true(init_state):
 		init_state.set_terminal(False)
 
@@ -147,7 +153,16 @@ class Option(object):
 	def set_name(self, new_name):
 		self.name = new_name
 
+	def get_num_children(self):
+		return len(self.child_options)
+
 	def get_child_option(self, num_trained_options):
+		# If we have an untrained option targeting the current option, return that
+		for child_option in self.child_options: # type: Option
+			if not child_option.trained:
+				return child_option
+
+		# If we don't have any child untrained options, create a new one and return that
 		# Create new option whose termination is the initiation of the option we just trained
 		name = "option_{}".format(str(num_trained_options))
 		print("Creating {}".format(name))
@@ -160,6 +175,8 @@ class Option(object):
 													buffer_length=self.buffer_length,
 													num_subgoal_hits=self.num_subgoal_hits_required,
 													subgoal_reward=self.subgoal_reward)
+		self.child_options.append(untrained_option)
+
 		return untrained_option
 
 	def add_initiation_experience(self, states_queue):
@@ -242,6 +259,7 @@ class Option(object):
 		self.add_experience_buffer(experience_buffer)
 
 		if self.num_goal_hits >= self.num_subgoal_hits_required:
+			self.trained = True
 			self.train_initiation_classifier()
 			self.initialize_option_policy()
 			return True

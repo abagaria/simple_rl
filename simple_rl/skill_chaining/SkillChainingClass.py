@@ -13,6 +13,7 @@ import _pickle as pickle
 import pdb
 import argparse
 import sys
+from anytree import LevelOrderGroupIter
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
@@ -25,7 +26,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3):
+                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3, max_number_options=4, branching_factor=2):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -35,6 +36,8 @@ class SkillChaining(object):
             buffer_length (int): size of the circular buffer used as experience buffer
             subgoal_reward (float): Hitting a subgoal must yield a supplementary reward to enable local policy
             subgoal_hits (int): number of times the RL agent has to hit the goal of an option o to learn its I_o, Beta_o
+            max_number_options (int): max number of options the agent can learn
+            branching_factor (int): number of child options that each option is allowed to have in the skill tree
         """
         self.mdp = mdp
         self.original_actions = deepcopy(mdp.actions)
@@ -43,8 +46,11 @@ class SkillChaining(object):
         self.buffer_length = buffer_length
         self.subgoal_reward = subgoal_reward
         self.num_goal_hits_before_training = subgoal_hits
+        self.max_number_of_options = max_number_options
+        self.branching_factor = branching_factor
 
         self.trained_options = []
+        self.untrained_options = []
 
         # If we are given pretrained options, we will just use them as trained options
         if len(pretrained_options) > 0:
@@ -65,6 +71,7 @@ class SkillChaining(object):
         # Add the trained option to the action set of the global solver
         if newly_trained_option not in self.trained_options:
             self.trained_options.append(newly_trained_option)
+            self.untrained_options.remove(newly_trained_option)
 
         # Augment the global DQN with the newly trained option
         num_actions = len(self.mdp.actions) + len(self.trained_options)
@@ -167,6 +174,38 @@ class SkillChaining(object):
             total_reward += reward
         return total_reward
 
+    def _maybe_trigger_goal_event(self, state, option, experience_buffer, state_buffer,
+                            episodic_trigger_flag, took_primitive_action):
+        """
+        Procedure when we hit a salient event - either the termination condition of the goal option
+        or the initiation condition of a learned option.
+        Args:
+            state (State): state we landed in after taking an action in this step
+            option (Option): Either trained_option or overall_goal_option
+            experience_buffer (deque): queue of s, a, r, s' tuples
+            state_buffer (deque): queue of states encountered in the current episode
+            episodic_trigger_flag (bool): flag indicating whether or not we triggered a goal event in this episode
+            took_primitive_action (bool): flag indicating whether or not the last action we took was primitive or option
+
+        Returns:
+            triggered (bool): Triggered salient event (episodic goal target or subgoal)
+        """
+        untrained_overall_option = len(self.trained_options) == 0
+        trigger_predicate = option.is_term_true(state) if untrained_overall_option else option.is_init_true(state)
+        if trigger_predicate and len(experience_buffer) == self.buffer_length and \
+                            not episodic_trigger_flag and len(self.trained_options) < self.max_number_of_options and \
+                            option.get_num_children() <= self.branching_factor and took_primitive_action:
+            # if not untrained_overall_option: pdb.set_trace()
+            untrained_option = option.get_child_option(len(self.trained_options)) if not untrained_overall_option else option
+
+            if untrained_option.train(experience_buffer, state_buffer):
+                plot_one_class_initiation_classifier(untrained_option)
+                self._augment_agent_with_new_option(untrained_option)
+                new_untrained_option = untrained_option.get_child_option(len(self.trained_options))
+                self.untrained_options.append(new_untrained_option)
+            return True
+        return False
+
     def skill_chaining(self, num_episodes=120, num_steps=100000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
@@ -179,7 +218,7 @@ class SkillChaining(object):
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
         # 2. This option has an untrained initialization set and policy, which we need to train from experience
-        untrained_option = goal_option
+        self.untrained_options.append(goal_option)
 
         # For logging purposes
         per_episode_scores = []
@@ -202,14 +241,13 @@ class SkillChaining(object):
                     experience_buffer.append(experience)
                     state_buffer.append(experience[0])
 
-                if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 4:
-                    uo_episode_terminated = True
+                goal_triggers = [goal_option] if len(self.trained_options) == 0 else self.trained_options
 
-                    if untrained_option.train(experience_buffer, state_buffer):
-                        plot_one_class_initiation_classifier(untrained_option)
-                        self._augment_agent_with_new_option(untrained_option)
-                        new_untrained_option = untrained_option.get_child_option(len(self.trained_options))
-                        untrained_option = new_untrained_option
+                for trained_option in goal_triggers: # type: Option
+                    if self._maybe_trigger_goal_event(state, trained_option, experience_buffer,
+                                                       state_buffer, uo_episode_terminated,
+                                                       len(experiences) == 1):
+                        uo_episode_terminated = True
                         
                 if state.is_out_of_frame() or state.is_terminal():
                     break
@@ -296,7 +334,7 @@ def construct_lunar_lander_mdp():
 
 def construct_pinball_mdp():
     from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
-    mdp = PinballMDP(noise=0., episode_length=1000, render=True)
+    mdp = PinballMDP(noise=0., episode_length=1000, render=False)
     return mdp
 
 if __name__ == '__main__':
