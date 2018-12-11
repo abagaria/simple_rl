@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3):
+                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=1, classifier_type="one_class"):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -35,6 +35,7 @@ class SkillChaining(object):
             buffer_length (int): size of the circular buffer used as experience buffer
             subgoal_reward (float): Hitting a subgoal must yield a supplementary reward to enable local policy
             subgoal_hits (int): number of times the RL agent has to hit the goal of an option o to learn its I_o, Beta_o
+            classifier_type (str): one_class/two_class/pu_learning
         """
         self.mdp = mdp
         self.original_actions = deepcopy(mdp.actions)
@@ -43,6 +44,7 @@ class SkillChaining(object):
         self.buffer_length = buffer_length
         self.subgoal_reward = subgoal_reward
         self.num_goal_hits_before_training = subgoal_hits
+        self.classifier_type = classifier_type
 
         self.trained_options = []
 
@@ -174,7 +176,7 @@ class SkillChaining(object):
                              name='overall_goal_policy', term_prob=0., global_solver=self.global_solver,
                              buffer_length=self.buffer_length,
                              num_subgoal_hits_required=self.num_goal_hits_before_training,
-                             subgoal_reward=self.subgoal_reward)
+                             subgoal_reward=self.subgoal_reward, classifier_type=self.classifier_type)
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
@@ -206,7 +208,8 @@ class SkillChaining(object):
                     uo_episode_terminated = True
 
                     if untrained_option.train(experience_buffer, state_buffer):
-                        plot_one_class_initiation_classifier(untrained_option)
+                        # plot_one_class_initiation_classifier(untrained_option)
+                        plot_initiation_set(untrained_option)
                         self._augment_agent_with_new_option(untrained_option)
                         new_untrained_option = untrained_option.get_child_option(len(self.trained_options))
                         untrained_option = new_untrained_option
@@ -303,7 +306,7 @@ if __name__ == '__main__':
     overall_mdp = construct_pinball_mdp()
     state_space_size = overall_mdp.init_state.state_space_size()
     solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=0, name="GlobalDQN")
-    buffer_len = 20
+    buffer_len = 100
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
@@ -317,10 +320,12 @@ if __name__ == '__main__':
                                 pretrained_options=pretrained_options)
         episodic_scores = chainer.skill_chaining()
     else:
-        print("Training skill chaining agent from scratch with a buffer length of ", buffer_len)
+        classifier_type = "two_class"
+        print("Training skill chaining agent from scratch with a buffer length of {} and classifier_type={}".format(buffer_len, classifier_type))
         print("MDP InitState = ", overall_mdp.init_state)
         print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
-        chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len)
+        chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len,
+                                classifier_type=classifier_type)
         episodic_scores = chainer.skill_chaining()
         chainer.save_all_dqns()
         chainer.save_all_initiation_classifiers()

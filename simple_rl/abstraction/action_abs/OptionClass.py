@@ -41,7 +41,7 @@ class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
 				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False,
-				 num_subgoal_hits_required=3, subgoal_reward=5000.):
+				 num_subgoal_hits_required=3, subgoal_reward=5000., classifier_type="one_class"):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -58,6 +58,7 @@ class Option(object):
 			pretrained (bool)
 			num_subgoal_hits_required (int)
 			subgoal_reward (float)
+			classifier_type (str)
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -69,6 +70,7 @@ class Option(object):
 		self.pretrained = pretrained
 		self.num_subgoal_hits_required = num_subgoal_hits_required
 		self.subgoal_reward = subgoal_reward
+		self.classifier_type = classifier_type
 
 		# if init_state.is_terminal() and not self.is_term_true(init_state):
 		init_state.set_terminal(False)
@@ -85,14 +87,18 @@ class Option(object):
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
 		self.solver.target_network.initialize_with_bigger_network(self.global_solver.target_network)
 
-		self.initiation_classifier = svm.OneClassSVM(nu=0.01)
+		self.one_class_init_classifier = svm.OneClassSVM(nu=0.01)
+		self.two_class_init_classifier = svm.SVC(kernel="rbf")
+		self.pu_init_classifier = svm.SVC(kernel="rbf")
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
 		self.initiation_data = np.empty((buffer_length, num_subgoal_hits_required), dtype=State)
 		self.experience_buffer = np.empty((buffer_length, num_subgoal_hits_required), dtype=Experience)
+		self.parent_initiation_data = np.empty((buffer_length, num_subgoal_hits_required), dtype=State)
 
 		self.overall_mdp = overall_mdp
 		self.num_goal_hits = 0
+		self.num_negative_examples = (1 * self.buffer_length) // 2
 
 		# Debug member variables
 		self.starting_points = []
@@ -150,7 +156,6 @@ class Option(object):
 	def get_child_option(self, num_trained_options):
 		# Create new option whose termination is the initiation of the option we just trained
 		name = "option_{}".format(str(num_trained_options))
-		print("Creating {}".format(name))
 
 		# Using the global init_state as the init_state for all child options
 		untrained_option = self.create_child_option(init_state=deepcopy(self.overall_mdp.init_state),
@@ -159,7 +164,8 @@ class Option(object):
 													global_solver=self.global_solver,
 													buffer_length=self.buffer_length,
 													num_subgoal_hits=self.num_subgoal_hits_required,
-													subgoal_reward=self.subgoal_reward)
+													subgoal_reward=self.subgoal_reward,
+													classifier_type=self.classifier_type)
 		return untrained_option
 
 	def add_initiation_experience(self, states_queue):
@@ -174,6 +180,22 @@ class Option(object):
 		# Convert the high dimensional states to positional states for ease of learning the initiation classifier
 		positional_states = [state.convert_to_positional_state() for state in states]
 		self.initiation_data[:, self.num_goal_hits-1] = np.asarray(positional_states)
+
+	def add_purely_negative_initiation_experience(self, states_queue):
+		"""
+		Specifically, all positive training examples from parent and sibling options count as negative training
+		examples for this option's classifier
+		Args:
+			states_queue (deque): buffer of positive training example states of parent/sibling options
+		"""
+		assert type(states_queue) == deque, "Expected initiation experience to be a queue"
+		states = list(states_queue)
+
+		# Convert the high dimensional states to positional states for ease of learning the initiation classifier
+		positional_states = [state.convert_to_positional_state() for state in states]
+
+		# Pure negative initiation data will be a list of lists
+		self.pure_negative_initiation_data.append(positional_states)
 
 	def add_experience_buffer(self, experience_queue):
 		"""
@@ -195,11 +217,64 @@ class Option(object):
 			X[row, :] = states[row].features()
 		return X
 
+	# TODO: Don't think I need this
+	@staticmethod
+	def _construct_feature_matrix_from_list(states_list):
+		n_samples = len(states_list)
+		n_features = states_list[0].get_num_feats()
+		X = np.zeros((n_samples, n_features))
+		for row in range(X.shape[0]):
+			X[row, :] = states_list[row].features()
+		return X
+
+	def _split_experience_into_pos_neg_examples(self):
+		num_negative_examples = self.num_negative_examples
+		negative_experiences = self.initiation_data[:num_negative_examples, :]  # 1st 25 states are negative examples
+		positive_experiences = self.initiation_data[num_negative_examples:, :]  # Last 15 states are positive examples
+		return positive_experiences, negative_experiences
+
+	def _extract_parent_positive_initiation_data(self):
+		num_negative_examples = self.num_negative_examples
+		positive_experiences = self.parent_initiation_data[num_negative_examples:, :]
+		return positive_experiences
+
 	def train_initiation_classifier(self):
+		if self.classifier_type == "one_class":
+			self.train_one_class_initiation_classifier()
+		elif self.classifier_type == "two_class":
+			self.train_two_class_initiation_classifier()
+		else:
+			raise NotImplementedError("{} classifier_type not supported yet".format(self.classifier_type))
+
+	def train_two_class_initiation_classifier(self):
+		positive_examples, negative_examples = self._split_experience_into_pos_neg_examples()
+		positive_feature_matrix = self._construct_feature_matrix(positive_examples)
+		negative_feature_matrix = self._construct_feature_matrix(negative_examples)
+		positive_labels = [1] * positive_feature_matrix.shape[0]
+		negative_labels = [0] * negative_feature_matrix.shape[0]
+
+		pdb.set_trace()
+
+		if not np.all(self.parent_initiation_data == None):
+			parent_positive_initiation_examples = self._extract_parent_positive_initiation_data()
+			all_negative_feature_matrix = self._construct_feature_matrix(parent_positive_initiation_examples)
+			all_negative_labels = [0] * all_negative_feature_matrix.shape[0]
+
+			X = np.concatenate((positive_feature_matrix, negative_feature_matrix, all_negative_feature_matrix))
+			Y = np.concatenate((positive_labels, negative_labels, all_negative_labels))
+		else:
+			X = np.concatenate((positive_feature_matrix, negative_feature_matrix))
+			Y = np.concatenate((positive_labels, negative_labels))
+
+		self.two_class_init_classifier.fit(X, Y)
+		self.init_predicate = Predicate(func=lambda s: self.two_class_init_classifier.predict([s.features()])[0],
+										name=self.name + '_init_predicate')
+
+	def train_one_class_initiation_classifier(self):
 		positive_feature_matrix = self._construct_feature_matrix(self.initiation_data)
-		self.initiation_classifier.fit(positive_feature_matrix)
+		self.one_class_init_classifier.fit(positive_feature_matrix)
 		# The OneClassSVM.predict() returns 1 for in-class samples, and -1 for out-of-class samples
-		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0] == 1,
+		self.init_predicate = Predicate(func=lambda s: self.one_class_init_classifier.predict([s.features()])[0] == 1,
 										name=self.name+'_init_predicate')
 
 	def initialize_option_policy(self):
@@ -262,13 +337,15 @@ class Option(object):
 			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 	def create_child_option(self, init_state, actions, new_option_name, global_solver, buffer_length, num_subgoal_hits,
-							default_q=0., pretrained=False, subgoal_reward=5000.):
+							default_q=0., pretrained=False, subgoal_reward=5000., classifier_type="one_class"):
+		print("Creating {} with classifier_type {}".format(new_option_name, classifier_type))
 		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
 		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
 								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
 								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length,
 								  pretrained=pretrained, num_subgoal_hits_required=num_subgoal_hits,
-								  subgoal_reward=subgoal_reward)
+								  subgoal_reward=subgoal_reward, classifier_type=classifier_type)
+		untrained_option.parent_initiation_data = self.initiation_data
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):

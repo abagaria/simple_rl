@@ -60,7 +60,7 @@ def get_init_data_and_labels(option):
     return X, Y
 
 def plot_initiation_set(option):
-    trained_classifier = option.initiation_classifier
+    trained_classifier = option.two_class_init_classifier
     fig, sub = plt.subplots(1, 1)
     X, Y = get_init_data_and_labels(option)
     X0, X1 = X[:, 0], X[:, 1]
