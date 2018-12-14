@@ -79,7 +79,8 @@ class Option(object):
 		else:
 			self.policy = policy
 
-		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), len(overall_mdp.actions), [], 0, name=name)
+		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions),
+							   len(overall_mdp.actions), [], eps_init=global_solver.epsilon, seed=0, name=name)
 		self.global_solver = global_solver
 
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
@@ -206,6 +207,9 @@ class Option(object):
 		# Initialize the local DQN's policy with the weights of the global DQN
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
 		self.solver.target_network.initialize_with_bigger_network(self.global_solver.target_network)
+
+		# Copy over the epsilon of the global solver to the option solver
+		self.solver.epsilon = deepcopy(self.global_solver.epsilon)
 
 		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
 		experience_buffer = self.experience_buffer.reshape(-1)

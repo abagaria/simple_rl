@@ -69,7 +69,8 @@ class SkillChaining(object):
         # Augment the global DQN with the newly trained option
         num_actions = len(self.mdp.actions) + len(self.trained_options)
         num_state_dimensions = self.mdp.init_state.state_space_size()
-        new_global_agent = DQNAgent(num_state_dimensions, num_actions, len(self.original_actions), self.trained_options, seed=0, name=self.global_solver.name)
+        new_global_agent = DQNAgent(num_state_dimensions, num_actions, len(self.original_actions), self.trained_options,
+                                    eps_init=self.global_solver.epsilon, seed=0, name=self.global_solver.name)
         new_global_agent.replay_buffer = self.global_solver.replay_buffer
 
         new_global_agent.policy_network.initialize_with_smaller_network(self.global_solver.policy_network)
@@ -302,7 +303,8 @@ def construct_pinball_mdp():
 if __name__ == '__main__':
     overall_mdp = construct_pinball_mdp()
     state_space_size = overall_mdp.init_state.state_space_size()
-    solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=0, name="GlobalDQN")
+    solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], eps_init=1.0,
+                      seed=0, name="GlobalDQN")
     buffer_len = 20
 
     parser = argparse.ArgumentParser()

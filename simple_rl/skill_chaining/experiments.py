@@ -13,7 +13,7 @@ from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent, main
 from simple_rl.skill_chaining.create_pre_trained_options import PretrainedOptionsLoader
 
 class SkillChainingExperiments(object):
-    def __init__(self, mdp, num_episodes=600, num_instances=1, random_seed=0):
+    def __init__(self, mdp, num_episodes=200, num_instances=1, random_seed=0):
         self.mdp = mdp
         self.num_episodes = num_episodes
         self.num_instances = num_instances
@@ -84,6 +84,27 @@ class SkillChainingExperiments(object):
         plt.title("Learning curve with 1-class svm")
         plt.savefig("skill_chaining_comparison.png")
 
+    def epsilon_hyper_parameter_search(self):
+        print("=" * 80)
+        print("Hyper-parameter search for tau for DQN agent..")
+        print("=" * 80)
+        tau_space = [10., 15., 20., 25., 30., 35., 40.]
+        overall_scores = []
+        for tau in tau_space:
+            print()
+            print("-" * 80)
+            print("\nExperimenting with Tau = {}".format(tau))
+            print("-" * 80)
+            for i in range(self.num_instances):
+                print("\nInstance {} of {}".format(i + 1, self.num_instances))
+                print("-" * 80)
+                scores, dqn_agent = main(num_training_episodes=self.num_episodes, tau=tau)
+                filename = "tau_hyper_sweep/{}_instance_{}_tau_scores.npy".format(i, tau)
+                np.save(filename, scores)
+                overall_scores.append(scores)
+        np.save("tau_hyper_sweep/tau_sweep.npy", overall_scores)
+        return overall_scores
+
     def compare_hyperparameter_subgoal_reward(self):
         print("=" * 80)
         print("Training skill chaining agent..")
@@ -103,5 +124,6 @@ class SkillChainingExperiments(object):
 if __name__ == '__main__':
     overall_mdp = construct_lunar_lander_mdp()
     experiments = SkillChainingExperiments(overall_mdp)
-    experiments.compare_agents()
+    # experiments.compare_agents()
     # subgoal_scores = experiments.compare_hyperparameter_subgoal_reward()
+    tau_scores = experiments.epsilon_hyper_parameter_search()

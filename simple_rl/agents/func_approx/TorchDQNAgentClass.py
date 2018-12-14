@@ -23,7 +23,7 @@ GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
 LR = 5e-4  # learning rate
 UPDATE_EVERY = 1  # how often to update the network
-NUM_EPISODES = 250
+NUM_EPISODES = 50
 NUM_STEPS = 100000
 
 EPS_START = 1.0
@@ -105,12 +105,13 @@ class QNetwork(nn.Module):
 class DQNAgent(Agent):
     """Interacts with and learns from the environment."""
 
-    def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent"):
+    def __init__(self, state_size, action_size, num_original_actions, trained_options, eps_init, seed, tau=20., name="DQN-Agent"):
         self.state_size = state_size
         self.action_size = action_size
         self.num_original_actions = num_original_actions
         self.trained_options = trained_options
         self.seed = random.seed(seed)
+        self.tau = tau
 
         # Q-Network
         self.policy_network = QNetwork(state_size, action_size, seed).to(device)
@@ -123,7 +124,8 @@ class DQNAgent(Agent):
         self.t_step = 0
 
         # Epsilon strategy
-        self.epsilon = EPS_START
+        self.eps_init = eps_init
+        self.epsilon = eps_init
         self.step_number = 0 # Number of times act() is called (used for eps-decay)
 
         # Debugging attributes
@@ -158,12 +160,16 @@ class DQNAgent(Agent):
             action_values[0][impossible_idx] = torch.min(action_values, dim=1)[0] - 1.
 
         action_values = action_values.cpu().data.numpy()
+
         # Epsilon-greedy action selection
         if random.random() > self.epsilon:
-            return np.argmax(action_values)
+            chosen_action = np.argmax(action_values)
+        else:
+            # Not allowing epsilon-greedy to select an option as a random action
+            chosen_action = random.choice(np.arange(self.num_original_actions))
 
-        # Not allowing epsilon-greedy to select an option as a random action
-        return random.choice(np.arange(self.num_original_actions))
+        self._update_epsilon()
+        return chosen_action
 
     def get_value(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
@@ -246,10 +252,17 @@ class DQNAgent(Agent):
 
     def _update_epsilon(self):
         self.epsilon_history.append(self.epsilon)
-        self.epsilon = EPS_START / (1.0 + (self.step_number / 200.0) * (self.episode_number + 1) / 2000.0)
+        tau = 10000 * self.tau
+        t = self.step_number * (1. + self.episode_number)
+        self.epsilon = self.eps_init / (1.0 + (t / tau))
 
     def end_of_episode(self):
         self._update_epsilon()
+
+        if self.episode_number % 10 == 0:
+            filename = "eps_history/{}_eps_history_{}_episodes.npy".format(self.name, self.episode_number)
+            np.save(filename, self.epsilon_history)
+
         Agent.end_of_episode(self)
 
 class ReplayBuffer:
@@ -346,11 +359,11 @@ def test_forward_pass(dqn_agent, mdp):
 
     return overall_reward
 
-def main(num_training_episodes=NUM_EPISODES, to_plot=False):
+def main(num_training_episodes=NUM_EPISODES, tau=20., to_plot=False):
     mdp = construct_pinball_mdp()
     state_space_size = mdp.init_state.state_space_size()
     action_space_size = len(mdp.actions)
-    dqn_agent = DQNAgent(state_size=state_space_size, action_size=action_space_size,
+    dqn_agent = DQNAgent(state_size=state_space_size, action_size=action_space_size, eps_init=EPS_START, tau=tau,
                          num_original_actions=action_space_size, trained_options=[], seed=RANDOM_SEED)
     episode_scores = train(dqn_agent, mdp, num_training_episodes, NUM_STEPS)
 
