@@ -6,18 +6,22 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 sns.set()
+import pdb
 
 # Other imports.
-from simple_rl.skill_chaining.SkillChainingClass import SkillChaining, construct_lunar_lander_mdp
+from simple_rl.skill_chaining.SkillChainingClass import SkillChaining
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent, main
 from simple_rl.skill_chaining.create_pre_trained_options import PretrainedOptionsLoader
+from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
 
 class SkillChainingExperiments(object):
-    def __init__(self, mdp, num_episodes=600, num_instances=1, random_seed=0):
+    def __init__(self, mdp, num_episodes=150, num_instances=1, random_seed=0):
         self.mdp = mdp
         self.num_episodes = num_episodes
         self.num_instances = num_instances
         self.random_seed = random_seed
+
+        self.data_frame = None
 
     def compare_agents(self):
 
@@ -84,6 +88,56 @@ class SkillChainingExperiments(object):
         plt.title("Learning curve with 1-class svm")
         plt.savefig("skill_chaining_comparison.png")
 
+    def run_skill_chaining_with_different_seeds(self):
+        # Same buffer length used by SC-agent and transfer learning SC agent
+        buffer_len = 15
+
+        random_seeds = [0, 24, 123, 4351]
+        possible_max_num_options = [0, 1, 2, 3, 4]
+        scores = []
+        episodes = []
+        algorithms = []
+
+        for max_num_options in possible_max_num_options:
+            for random_seed in random_seeds:
+                print()
+                print("=" * 80)
+                print("Training skill chaining agent (seed={}, n_options={})".format(random_seed, max_num_options))
+                print("=" * 80)
+                list_scores, episode_numbers = [], []
+                for i in range(self.num_instances):
+                    print("\nInstance {} of {}".format(i + 1, self.num_instances))
+
+                    self.mdp = PinballMDP(noise=0.001, episode_length=50000, render=False)
+                    self.state_size = self.mdp.init_state.state_space_size()
+                    self.num_actions = len(self.mdp.actions)
+
+                    solver = DQNAgent(self.state_size, self.num_actions, self.num_actions, [], seed=random_seed, name="GlobalDQN")
+                    skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, rl_agent=solver,
+                                                         buffer_length=buffer_len, max_num_options=max_num_options)
+                    episodic_scores = skill_chaining_agent.skill_chaining(num_episodes=self.num_episodes, num_steps=25000)
+                    skill_chaining_agent.save_all_dqns()
+                    skill_chaining_agent.save_all_initiation_classifiers()
+                    episode_numbers += list(range(self.num_episodes))
+                    list_scores += episodic_scores
+                scores += list_scores
+                episodes += episode_numbers
+                algorithms += ["n_options={}".format(max_num_options)] * len(episode_numbers)
+        # pdb.set_trace()
+        scores_dataframe = pd.DataFrame(np.array(scores), columns=["reward"])
+        scores_dataframe["episode"] = np.array(episodes)
+
+        plt.figure()
+        scores_dataframe["method"] = np.array(algorithms)
+        sns.lineplot(x="episode", y="reward", hue="method", data=scores_dataframe)
+        plt.title("Skill Chaining Learning Curves")
+        plt.savefig("skill_chaining_random_seeds.png")
+        plt.show()
+
+        self.data_frame = scores_dataframe
+        scores_dataframe.to_pickle("successive_options_scores_df.pkl")
+
+
     def compare_hyperparameter_subgoal_reward(self):
         print("=" * 80)
         print("Training skill chaining agent..")
@@ -101,7 +155,7 @@ class SkillChainingExperiments(object):
         return list_scores
 
 if __name__ == '__main__':
-    overall_mdp = construct_lunar_lander_mdp()
-    experiments = SkillChainingExperiments(overall_mdp)
-    experiments.compare_agents()
+    experiments = SkillChainingExperiments(None)
+    # experiments.compare_agents()
     # subgoal_scores = experiments.compare_hyperparameter_subgoal_reward()
+    experiments.run_skill_chaining_with_different_seeds()

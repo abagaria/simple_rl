@@ -3,6 +3,7 @@ import seaborn as sns
 sns.set()
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
 # Other imports.
 from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
@@ -67,7 +68,7 @@ def plot_initiation_set(option):
     xx, yy = make_meshgrid(X0, X1)
     plot_contours(sub, trained_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
     plt.scatter(X0, X1, c=Y, cmap=plt.cm.coolwarm, s=20, edgecolors='k')
-    plt.savefig("{}_initiation_set.png".format(option.name))
+    plt.savefig("{}_initiation_set_{}.png".format(option.name, time.time()))
     plt.close()
 
 def get_one_class_init_data(option):
@@ -102,7 +103,7 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     plt.xlabel("xpos")
     plt.ylabel("ypos")
 
-    plt.savefig("{}_one_class_svm.png".format(option.name))
+    plt.savefig("{}_one_class_svm_{}.png".format(option.name, time.time()))
     plt.close()
 
 def sample_termination_set_classifier(option):

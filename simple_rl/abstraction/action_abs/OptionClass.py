@@ -319,7 +319,7 @@ class Option(object):
 
 			option_transitions = []
 
-			while self.is_init_true(state) and not self.is_term_true(state):
+			while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal():
 
 				epsilon = self.solver.epsilon if not self.pretrained else 0.
 				action = self.solver.act(state.features(), epsilon)
@@ -331,6 +331,9 @@ class Option(object):
 				if self.is_term_true(next_state):
 					# print("\rEntered the termination set of {}".format(self.name))
 					augmented_reward += 5000. # TODO: pass the subgoal_reward from SkillChainingClass
+					for _ in range(50):
+						self.solver.step(state.features(), action, augmented_reward, next_state.features(),
+										 next_state.is_terminal())
 
 				if not self.pretrained:
 					self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())

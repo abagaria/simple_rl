@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3):
+                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3, max_num_options=4):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -35,6 +35,7 @@ class SkillChaining(object):
             buffer_length (int): size of the circular buffer used as experience buffer
             subgoal_reward (float): Hitting a subgoal must yield a supplementary reward to enable local policy
             subgoal_hits (int): number of times the RL agent has to hit the goal of an option o to learn its I_o, Beta_o
+            max_num_options (int): Maximum number of options that the skill chaining agent can create
         """
         self.mdp = mdp
         self.original_actions = deepcopy(mdp.actions)
@@ -43,6 +44,7 @@ class SkillChaining(object):
         self.buffer_length = buffer_length
         self.subgoal_reward = subgoal_reward
         self.num_goal_hits_before_training = subgoal_hits
+        self.max_num_options = max_num_options
 
         self.trained_options = []
 
@@ -119,14 +121,14 @@ class SkillChaining(object):
 
         option_reward = self.get_reward_from_experiences(option_transitions)
         next_state = self.get_next_state_from_experiences(option_transitions)
-        augmented_reward = max(-1, option_reward + (selected_option.is_term_true(next_state) * self.subgoal_reward))
+        # augmented_reward = max(-1, option_reward + (selected_option.is_term_true(next_state) * self.subgoal_reward))
 
         # Add data to train Q(s, o)
-        self.global_solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
+        self.global_solver.step(state.features(), action, option_reward, next_state.features(), next_state.is_terminal())
 
         # Debug logging
         episode_option_executions[selected_option.name] += 1
-        self.option_rewards[selected_option.name].append(augmented_reward)
+        self.option_rewards[selected_option.name].append(option_reward)
         self.option_qvalues[selected_option.name].append(self.sample_qvalue(selected_option))
 
         return option_transitions, option_reward, next_state
@@ -167,6 +169,13 @@ class SkillChaining(object):
             total_reward += reward
         return total_reward
 
+    def should_create_more_options(self):
+        start_state = deepcopy(self.mdp.init_state)
+        for option in self.trained_options: # type: Option
+            if option.is_init_true(start_state):
+                return False
+        return len(self.trained_options) < self.max_num_options
+
     def skill_chaining(self, num_episodes=120, num_steps=100000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
@@ -202,7 +211,7 @@ class SkillChaining(object):
                     experience_buffer.append(experience)
                     state_buffer.append(experience[0])
 
-                if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and len(self.trained_options) < 4:
+                if untrained_option.is_term_true(state) and len(experience_buffer) == self.buffer_length and not uo_episode_terminated and self.should_create_more_options():
                     uo_episode_terminated = True
 
                     if untrained_option.train(experience_buffer, state_buffer):
@@ -296,7 +305,7 @@ def construct_lunar_lander_mdp():
 
 def construct_pinball_mdp():
     from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
-    mdp = PinballMDP(noise=0., episode_length=1000, render=True)
+    mdp = PinballMDP(noise=0.0, episode_length=1000, render=True)
     return mdp
 
 if __name__ == '__main__':

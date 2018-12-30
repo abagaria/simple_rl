@@ -25,9 +25,9 @@ NUM_EPISODES = 2000
 NUM_STEPS = 1000
 
 EPS_START = 1.0
-EPS_END = 0.01
+EPS_END = 0.05
 EPS_EXPONENTIAL_DECAY = 0.995
-EPS_LINEAR_DECAY_LENGTH = 10000
+EPS_LINEAR_DECAY_LENGTH = 100000
 EPS_LINEAR_DECAY = (EPS_START - EPS_END) / EPS_LINEAR_DECAY_LENGTH
 
 RANDOM_SEED = 0
@@ -163,8 +163,15 @@ class DQNAgent(Agent):
         if random.random() > self.epsilon:
             return np.argmax(action_values)
 
+        # pdb.set_trace()
+        original_actions = list(range(self.num_original_actions))
+        all_option_idx = list(range(len(self.trained_options)))
+        possible_option_idx = list(set(all_option_idx).difference(impossible_option_idx))
+        all_possible_action_idx = original_actions + list(map(lambda x: x + self.num_original_actions, possible_option_idx))
+        randomly_chosen_action = random.choice(all_possible_action_idx)
+
         # Not allowing epsilon-greedy to select an option as a random action
-        return random.choice(np.arange(self.num_original_actions))
+        return randomly_chosen_action
 
     def get_value(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
