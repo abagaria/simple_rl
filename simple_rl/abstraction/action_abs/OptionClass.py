@@ -330,7 +330,7 @@ class Option(object):
 				# If we reach the current option's subgoal,
 				if self.is_term_true(next_state):
 					# print("\rEntered the termination set of {}".format(self.name))
-					augmented_reward += 5000. # TODO: pass the subgoal_reward from SkillChainingClass
+					augmented_reward += self.subgoal_reward # TODO: pass the subgoal_reward from SkillChainingClass
 					for _ in range(50):
 						self.solver.step(state.features(), action, augmented_reward, next_state.features(),
 										 next_state.is_terminal())

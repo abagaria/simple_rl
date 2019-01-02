@@ -11,9 +11,10 @@ from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 class PinballMDP(MDP):
     """ Class for pinball domain. """
 
-    def __init__(self, noise=0., episode_length=1000, goal_predicate=None, render=False):
+    def __init__(self, noise=0., episode_length=1000, reward_scale=10000., goal_predicate=None, render=False):
         self.domain = Pinball(noise=noise, episodeCap=episode_length) #, configuration="/home/akhil/git-repos/rlpy/rlpy/Domains/PinballConfigs/pinball_medium.cfg")
         self.render = render
+        self.reward_scale = reward_scale
 
         # Each observation from domain.step(action) is a tuple of the form reward, next_state, is_term, possible_actions
         # s0 returns initial state, is_terminal, possible_actions
@@ -47,7 +48,7 @@ class PinballMDP(MDP):
         #     print("Hit goal state!")
         #     print(80 * "=")
 
-        return reward
+        return self.reward_scale if reward >= 10000 else reward
 
     def _transition_func(self, state, action):
         return self.next_state
