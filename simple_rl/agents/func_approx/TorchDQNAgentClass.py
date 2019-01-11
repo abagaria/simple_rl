@@ -4,15 +4,19 @@ from collections import namedtuple, deque
 import gym
 import matplotlib.pyplot as plt
 import seaborn as sns
+sns.set()
 import pdb
+from copy import deepcopy
 
 import torch.optim as optim
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tensorboardX import SummaryWriter
 
 from simple_rl.agents.AgentClass import Agent
+from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
 
 ## Hyperparameters
 BUFFER_SIZE = int(1e6)  # replay buffer size
@@ -21,8 +25,8 @@ GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
 LR = 5e-4  # learning rate
 UPDATE_EVERY = 1  # how often to update the network
-NUM_EPISODES = 2000
-NUM_STEPS = 1000
+NUM_EPISODES = 200
+NUM_STEPS = 20000
 
 EPS_START = 1.0
 EPS_END = 0.05
@@ -130,6 +134,7 @@ class DQNAgent(Agent):
 
         # Debugging attributes
         self.num_updates = 0
+        self.writer = SummaryWriter("FlatDQN-Oversample100")
 
         Agent.__init__(self, name, range(action_size), GAMMA)
 
@@ -209,6 +214,7 @@ class DQNAgent(Agent):
             if len(self.replay_buffer) > BATCH_SIZE:
                 experiences = self.replay_buffer.sample()
                 self._learn(experiences, GAMMA)
+                self.writer.add_scalar("NumPositiveTransitions", self.replay_buffer.positive_transitions[-1], self.num_updates)
                 self.num_updates += 1
 
     def _learn(self, experiences, gamma):
@@ -234,7 +240,14 @@ class DQNAgent(Agent):
         # Minimize the loss
         self.optimizer.zero_grad()
         loss.backward()
+
+        # Gradient clipping: tried but the results looked worse -- needs more testing
+        # for param in self.policy_network.parameters():
+        #     param.grad.data.clamp_(-1, 1)
+
         self.optimizer.step()
+
+        self.writer.add_scalar("Loss", loss.item(), self.num_updates)
 
         # ------------------- update target network ------------------- #
         self.soft_update(self.policy_network, self.target_network, TAU)
@@ -276,6 +289,8 @@ class ReplayBuffer:
         self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
         self.seed = random.seed(seed)
 
+        self.positive_transitions = []
+
     def add(self, state, action, reward, next_state, done):
         """
         Add new experience to memory.
@@ -293,6 +308,10 @@ class ReplayBuffer:
         """Randomly sample a batch of experiences from memory."""
         experiences = random.sample(self.memory, k=self.batch_size)
 
+        # Log the number of times we see +1 reward (should be sparse)
+        num_positive_transitions = sum([exp.reward > 0 for exp in experiences])
+        self.positive_transitions.append(num_positive_transitions)
+
         states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
         actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(device)
         rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
@@ -305,69 +324,67 @@ class ReplayBuffer:
         """Return the current size of internal memory."""
         return len(self.memory)
 
-def train(agent, env, episodes, steps):
+def train(agent, mdp, episodes, steps):
     per_episode_scores = []
-    last_100_scores = deque(maxlen=100)
+    last_10_scores = deque(maxlen=10)
+    iteration_counter = 0
 
     for episode in range(episodes):
-        state = env.reset()
+        mdp.reset()
+        state = deepcopy(mdp.init_state)
         score = 0.
         for step in range(steps):
-            action = agent.act(state, agent.epsilon)
-            next_state, reward, done, _ = env.step(action)
-            agent.step(state, action, reward, next_state, done)
+            iteration_counter += 1
+            action = agent.act(state.features(), agent.epsilon)
+            reward, next_state = mdp.execute_agent_action(action)
+            agent.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+            if next_state.is_terminal:
+                for _ in range(100):
+                    agent.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
             agent.update_epsilon()
             state = next_state
             score += reward
-            if done:
+            agent.writer.add_scalar("Score", score, iteration_counter)
+            agent.writer.add_scalar("Epsilon", agent.epsilon, iteration_counter)
+            if state.is_terminal():
                 break
-        last_100_scores.append(score)
+        last_10_scores.append(score)
         per_episode_scores.append(score)
 
-        print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)), end="")
-        if episode % 100 == 0:
-            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_100_scores)))
-
-        if np.mean(last_100_scores) >= 200.0:
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(episode - 100,
-                                                                                         np.mean(last_100_scores)))
-            torch.save(agent.policy_network.state_dict(), 'checkpoint.pth')
-            break
+        print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)), end="")
+        if episode % 10 == 0:
+            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)))
     return per_episode_scores
 
-def test_forward_pass(dqn_agent, env):
+def test_forward_pass(dqn_agent, mdp):
     # load the weights from file
-    dqn_agent.policy_network.load_state_dict(torch.load('checkpoint.pth'))
+    mdp.reset()
+    state = deepcopy(mdp.init_state)
+    overall_reward = 0.
+    mdp.render = True
 
-    for i in range(3):
-        state = env.reset()
-        for j in range(500):
-            action = dqn_agent.act(state)
-            env.render()
-            state, reward, done, _ = env.step(action)
-            if done:
-                break
+    while not state.is_terminal():
+        action = dqn_agent.act(state.features(), eps=0.)
+        reward, next_state = mdp.execute_agent_action(action)
+        overall_reward += reward
+        state = next_state
 
-    env.close()
+    mdp.render = False
+    return overall_reward
 
 def main(num_training_episodes=NUM_EPISODES, to_plot=False):
-    env = gym.make('LunarLander-v2')
+    mdp = PinballMDP(noise=0.0, episode_length=20000, render=False)
 
     # env.seed(RANDOM_SEED)
 
-    dqn_agent = DQNAgent(state_size=env.observation_space.shape[0], action_size=env.action_space.n, seed=RANDOM_SEED)
-    episode_scores = train(dqn_agent, env, num_training_episodes, NUM_STEPS)
-
-    if to_plot:
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        plt.plot(np.arange(len(episode_scores)), episode_scores)
-        plt.ylabel('Score')
-        plt.xlabel('Episode #')
-        plt.savefig('learning_curve.png')
-        plt.close()
+    dqn_agent = DQNAgent(state_size=mdp.init_state.state_space_size(), action_size=len(mdp.actions),
+                         num_original_actions=len(mdp.actions), trained_options=[], seed=0, name="GlobalDQN")
+    episode_scores = train(dqn_agent, mdp, num_training_episodes, NUM_STEPS)
 
     return episode_scores
 
 if __name__ == '__main__':
-    baseline_scores = main()
+    overall_mdp = PinballMDP(noise=0.0, episode_length=20000, render=False)
+    dqn_agent = DQNAgent(state_size=overall_mdp.init_state.state_space_size(), action_size=len(overall_mdp.actions),
+                         num_original_actions=len(overall_mdp.actions), trained_options=[], seed=0, name="GlobalDQN")
+    episode_scores = train(dqn_agent, overall_mdp, NUM_EPISODES, NUM_STEPS)

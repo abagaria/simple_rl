@@ -1,6 +1,7 @@
 # Python Imports.
 from __future__ import print_function
 import copy
+import numpy as np
 
 # Other imports.
 from rlpy.Domains.Pinball import Pinball
@@ -48,7 +49,7 @@ class PinballMDP(MDP):
         #     print("Hit goal state!")
         #     print(80 * "=")
 
-        return self.reward_scale if reward >= 10000 else reward
+        return np.sign(reward)
 
     def _transition_func(self, state, action):
         return self.next_state
