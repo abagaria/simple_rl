@@ -49,7 +49,7 @@ class PinballMDP(MDP):
         #     print("Hit goal state!")
         #     print(80 * "=")
 
-        return np.sign(reward)
+        return np.clip(reward, -1., 10000.)
 
     def _transition_func(self, state, action):
         return self.next_state

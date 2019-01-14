@@ -41,7 +41,7 @@ class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
 				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False,
-				 num_subgoal_hits_required=3, subgoal_reward=5000.):
+				 num_subgoal_hits_required=3, subgoal_reward=5000., max_steps=20000, seed=0):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -58,6 +58,8 @@ class Option(object):
 			pretrained (bool)
 			num_subgoal_hits_required (int)
 			subgoal_reward (float)
+			max_steps (int)
+			seed (int)
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -69,6 +71,8 @@ class Option(object):
 		self.pretrained = pretrained
 		self.num_subgoal_hits_required = num_subgoal_hits_required
 		self.subgoal_reward = subgoal_reward
+		self.max_steps = max_steps
+		self.seed = seed
 
 		# if init_state.is_terminal() and not self.is_term_true(init_state):
 		init_state.set_terminal(False)
@@ -79,7 +83,8 @@ class Option(object):
 		else:
 			self.policy = policy
 
-		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), len(overall_mdp.actions), [], 0, name=name)
+		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), len(overall_mdp.actions),
+							   trained_options=[], seed=self.seed, name=name)
 		self.global_solver = global_solver
 
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
@@ -95,6 +100,7 @@ class Option(object):
 		self.num_goal_hits = 0
 
 		# Debug member variables
+		self.total_executions = 0
 		self.starting_points = []
 		self.ending_points 	 = []
 		self.num_states_in_replay_buffer = []
@@ -206,21 +212,23 @@ class Option(object):
 		# Initialize the local DQN's policy with the weights of the global DQN
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
 		self.solver.target_network.initialize_with_bigger_network(self.global_solver.target_network)
+		self.solver.epsilon = self.global_solver.epsilon
 
 		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
 		experience_buffer = self.experience_buffer.reshape(-1)
 		for experience in experience_buffer:
 			state, a, r, s_prime = experience.serialize()
-			self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
+			if self.is_init_true(state) or self.is_init_true(s_prime):
+				self.solver.step(state.features(), a, r, s_prime.features(), s_prime.is_terminal())
 
 		# TODO: Experimental
 		# We only see 1 positive reward transition for each trajectory (which can be as long as 15000 steps)
 		# To increase the probability of samping the positive reward transition, I am adding that transition
 		# multiple times to the replay buffer
-		for _ in range(2500):
-			experience = experience_buffer[-1]
-			state, action, reward, next_state = experience.serialize()
-			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+		# for _ in range(2500):
+		# 	experience = experience_buffer[-1]
+		# 	state, action, reward, next_state = experience.serialize()
+		# 	self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
 	def train(self, experience_buffer, state_buffer):
 		"""
@@ -268,7 +276,7 @@ class Option(object):
 								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
 								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length,
 								  pretrained=pretrained, num_subgoal_hits_required=num_subgoal_hits,
-								  subgoal_reward=subgoal_reward)
+								  subgoal_reward=subgoal_reward, seed=self.seed)
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):
@@ -306,11 +314,12 @@ class Option(object):
 
 		return cur_state, total_reward
 
-	def execute_option_in_mdp(self, state, mdp):
+	def execute_option_in_mdp(self, state, mdp, step_number):
 
 		if self.is_init_true(state):
 
 			# ------------------ Debug logging for option's policy learning ------------------
+			self.total_executions += 1
 			self.starting_points.append(state)
 			self.num_states_in_replay_buffer.append(len(self.solver.replay_buffer))
 			self.num_learning_updates_dqn.append(self.solver.num_updates)
@@ -319,7 +328,8 @@ class Option(object):
 
 			option_transitions = []
 
-			while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal():
+			while self.is_init_true(state) and not self.is_term_true(state) and \
+					not state.is_terminal() and step_number < self.max_steps:
 
 				epsilon = self.solver.epsilon if not self.pretrained else 0.
 				action = self.solver.act(state.features(), epsilon)
@@ -330,10 +340,7 @@ class Option(object):
 				# If we reach the current option's subgoal,
 				if self.is_term_true(next_state):
 					# print("\rEntered the termination set of {}".format(self.name))
-					augmented_reward += self.subgoal_reward # TODO: pass the subgoal_reward from SkillChainingClass
-					for _ in range(50):
-						self.solver.step(state.features(), action, augmented_reward, next_state.features(),
-										 next_state.is_terminal())
+					augmented_reward += self.subgoal_reward
 
 				if not self.pretrained:
 					self.solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
@@ -347,6 +354,7 @@ class Option(object):
 				# Epsilon decay
 				self.solver.update_epsilon()
 				self.global_solver.update_epsilon()
+				step_number += 1
 
 			self.ending_points.append(state)
 

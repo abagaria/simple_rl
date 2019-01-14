@@ -7,6 +7,8 @@ import seaborn as sns
 sns.set()
 import pdb
 from copy import deepcopy
+import shutil
+import os
 
 import torch.optim as optim
 
@@ -28,13 +30,38 @@ UPDATE_EVERY = 1  # how often to update the network
 NUM_EPISODES = 200
 NUM_STEPS = 20000
 
-EPS_START = 1.0
-EPS_END = 0.05
-EPS_EXPONENTIAL_DECAY = 0.995
-EPS_LINEAR_DECAY_LENGTH = 100000
-EPS_LINEAR_DECAY = (EPS_START - EPS_END) / EPS_LINEAR_DECAY_LENGTH
+class EpsilonSchedule:
+    def __init__(self, eps_start, eps_end, eps_exp_decay, eps_linear_decay_length):
+        self.eps_start = eps_start
+        self.eps_end = eps_end
+        self.eps_exp_decay = eps_exp_decay
+        self.eps_linear_decay_length = eps_linear_decay_length
+        self.eps_linear_decay = (eps_start - eps_end) / eps_linear_decay_length
 
-RANDOM_SEED = 0
+    def update_epsilon(self, current_epsilon, num_executions):
+        pass
+
+class GlobalEpsilonSchedule(EpsilonSchedule):
+    def __init__(self, eps_start):
+        EPS_END = 0.05
+        EPS_EXPONENTIAL_DECAY = 0.995
+        EPS_LINEAR_DECAY_LENGTH = 100000
+        super(GlobalEpsilonSchedule, self).__init__(eps_start, EPS_END, EPS_EXPONENTIAL_DECAY, EPS_LINEAR_DECAY_LENGTH)
+
+    def update_epsilon(self, current_epsilon, num_executions):
+        if num_executions < self.eps_linear_decay_length:
+            return current_epsilon - self.eps_linear_decay
+        return max(self.eps_end, self.eps_exp_decay * current_epsilon)
+
+class OptionEpsilonSchedule(EpsilonSchedule):
+    def __init__(self, eps_start):
+        EPS_END = 0.01
+        EPS_EXPONENTIAL_DECAY = 0.998
+        EPS_LINEAR_DECAY_LENGTH = 10000
+        super(OptionEpsilonSchedule, self).__init__(eps_start, EPS_END, EPS_EXPONENTIAL_DECAY, EPS_LINEAR_DECAY_LENGTH)
+
+    def update_epsilon(self, current_epsilon, num_executions):
+        return max(self.eps_end, self.eps_exp_decay * current_epsilon)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("######### Using {} ############".format(device))
@@ -111,7 +138,7 @@ class QNetwork(nn.Module):
 class DQNAgent(Agent):
     """Interacts with and learns from the environment."""
 
-    def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent"):
+    def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent", eps_start=1.):
         self.state_size = state_size
         self.action_size = action_size
         self.num_original_actions = num_original_actions
@@ -129,12 +156,19 @@ class DQNAgent(Agent):
         self.t_step = 0
 
         # Epsilon strategy
-        self.epsilon = EPS_START
+        self.epsilon_schedule = GlobalEpsilonSchedule(eps_start) if "global" in name.lower() else OptionEpsilonSchedule(eps_start)
+        self.epsilon = eps_start
         self.num_executions = 0 # Number of times act() is called (used for eps-decay)
 
         # Debugging attributes
         self.num_updates = 0
-        self.writer = SummaryWriter("FlatDQN-Oversample100")
+        self.num_epsilon_updates = 0
+
+        if os.path.exists(name):
+            print("Deleting folder: {}".format(name))
+            shutil.rmtree(name)
+
+        self.writer = SummaryWriter(name)
 
         Agent.__init__(self, name, range(action_size), GAMMA)
 
@@ -248,6 +282,7 @@ class DQNAgent(Agent):
         self.optimizer.step()
 
         self.writer.add_scalar("Loss", loss.item(), self.num_updates)
+        self.writer.add_scalar("AverageQValue", Q_expected.mean().item(), self.num_updates)
 
         # ------------------- update target network ------------------- #
         self.soft_update(self.policy_network, self.target_network, TAU)
@@ -266,10 +301,11 @@ class DQNAgent(Agent):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
     def update_epsilon(self):
-        if self.num_executions < EPS_LINEAR_DECAY_LENGTH:
-            self.epsilon -= EPS_LINEAR_DECAY
-        else:
-            self.epsilon = max(EPS_END, EPS_EXPONENTIAL_DECAY * self.epsilon)
+        self.num_epsilon_updates += 1
+        self.epsilon = self.epsilon_schedule.update_epsilon(self.epsilon, self.num_epsilon_updates)
+
+        # Log epsilon decay
+        self.writer.add_scalar("Epsilon", self.epsilon, self.num_epsilon_updates)
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
@@ -338,14 +374,10 @@ def train(agent, mdp, episodes, steps):
             action = agent.act(state.features(), agent.epsilon)
             reward, next_state = mdp.execute_agent_action(action)
             agent.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
-            if next_state.is_terminal:
-                for _ in range(100):
-                    agent.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
             agent.update_epsilon()
             state = next_state
             score += reward
             agent.writer.add_scalar("Score", score, iteration_counter)
-            agent.writer.add_scalar("Epsilon", agent.epsilon, iteration_counter)
             if state.is_terminal():
                 break
         last_10_scores.append(score)

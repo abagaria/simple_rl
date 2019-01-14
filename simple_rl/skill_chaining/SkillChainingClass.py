@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, overall_goal_predicate, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3, max_num_options=4):
+                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3, max_num_options=4, seed=0):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -36,6 +36,7 @@ class SkillChaining(object):
             subgoal_reward (float): Hitting a subgoal must yield a supplementary reward to enable local policy
             subgoal_hits (int): number of times the RL agent has to hit the goal of an option o to learn its I_o, Beta_o
             max_num_options (int): Maximum number of options that the skill chaining agent can create
+            seed (int): We are going to use the same random seed for all the DQN solvers
         """
         self.mdp = mdp
         self.original_actions = deepcopy(mdp.actions)
@@ -45,6 +46,7 @@ class SkillChaining(object):
         self.subgoal_reward = subgoal_reward
         self.num_goal_hits_before_training = subgoal_hits
         self.max_num_options = max_num_options
+        self.seed = seed
 
         self.trained_options = []
 
@@ -71,7 +73,8 @@ class SkillChaining(object):
         # Augment the global DQN with the newly trained option
         num_actions = len(self.mdp.actions) + len(self.trained_options)
         num_state_dimensions = self.mdp.init_state.state_space_size()
-        new_global_agent = DQNAgent(num_state_dimensions, num_actions, len(self.original_actions), self.trained_options, seed=0, name=self.global_solver.name)
+        new_global_agent = DQNAgent(num_state_dimensions, num_actions, len(self.original_actions), self.trained_options,
+                                    seed=0, name=self.global_solver.name, eps_start=self.global_solver.epsilon)
         new_global_agent.replay_buffer = self.global_solver.replay_buffer
 
         new_global_agent.policy_network.initialize_with_smaller_network(self.global_solver.policy_network)
@@ -118,19 +121,22 @@ class SkillChaining(object):
         # Selected option
         option_idx = action - len(self.mdp.actions)
         selected_option = self.trained_options[option_idx] # type: Option
-        option_transitions = selected_option.execute_option_in_mdp(state, self.mdp)
+        option_transitions = selected_option.execute_option_in_mdp(state, self.mdp, step_number)
 
         option_reward = self.get_reward_from_experiences(option_transitions)
         next_state = self.get_next_state_from_experiences(option_transitions)
-        # augmented_reward = max(-1, option_reward + (selected_option.is_term_true(next_state) * self.subgoal_reward))
+        augmented_reward = max(-1, option_reward + (selected_option.is_term_true(next_state) * self.subgoal_reward))
 
         # Add data to train Q(s, o)
-        self.global_solver.step(state.features(), action, option_reward, next_state.features(), next_state.is_terminal())
+        self.global_solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
 
         # Debug logging
         episode_option_executions[selected_option.name] += 1
-        self.option_rewards[selected_option.name].append(option_reward)
-        self.option_qvalues[selected_option.name].append(self.sample_qvalue(selected_option))
+        self.option_rewards[selected_option.name].append(augmented_reward)
+
+        sampled_q_value = self.sample_qvalue(selected_option)
+        self.option_qvalues[selected_option.name].append(sampled_q_value)
+        self.global_solver.writer.add_scalar("{}_q_value".format(selected_option.name), sampled_q_value, selected_option.total_executions)
 
         return option_transitions, option_reward, next_state, len(option_transitions)
 
@@ -177,14 +183,14 @@ class SkillChaining(object):
                 return False
         return len(self.trained_options) < self.max_num_options
 
-    def skill_chaining(self, num_episodes=60, num_steps=20000):
+    def skill_chaining(self, num_episodes=200, num_steps=20000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
                              name='overall_goal_policy', term_prob=0., global_solver=self.global_solver,
                              buffer_length=self.buffer_length,
                              num_subgoal_hits_required=self.num_goal_hits_before_training,
-                             subgoal_reward=self.subgoal_reward)
+                             subgoal_reward=self.subgoal_reward, seed=self.seed, max_steps=num_steps)
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
@@ -219,7 +225,7 @@ class SkillChaining(object):
                     uo_episode_terminated = True
 
                     if untrained_option.train(experience_buffer, state_buffer):
-                        plot_one_class_initiation_classifier(untrained_option)
+                        # plot_one_class_initiation_classifier(untrained_option)
                         self._augment_agent_with_new_option(untrained_option)
                         new_untrained_option = untrained_option.get_child_option(len(self.trained_options))
                         untrained_option = new_untrained_option
@@ -241,6 +247,7 @@ class SkillChaining(object):
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)))
         for trained_option in self.trained_options:  # type: Option
             self.num_option_executions[trained_option.name].append(episode_option_executions[trained_option.name])
+            self.global_solver.writer.add_scalar("{}_executions".format(trained_option.name), episode_option_executions[trained_option.name], episode)
         return False
 
     def save_all_dqns(self):
@@ -315,8 +322,10 @@ def construct_pinball_mdp():
 if __name__ == '__main__':
     overall_mdp = construct_pinball_mdp()
     state_space_size = overall_mdp.init_state.state_space_size()
-    solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=0, name="GlobalDQN")
+    random_seed = 0
     buffer_len = 14
+    solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed,
+                      name="GlobalDQN", eps_start=1.0)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
@@ -333,7 +342,7 @@ if __name__ == '__main__':
         print("Training skill chaining agent from scratch with a buffer length of ", buffer_len)
         print("MDP InitState = ", overall_mdp.init_state)
         print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
-        chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len)
+        chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len, seed=random_seed)
         episodic_scores = chainer.skill_chaining()
         chainer.save_all_dqns()
         chainer.save_all_initiation_classifiers()
