@@ -8,12 +8,14 @@ from rlpy.Domains.Pinball import Pinball
 from simple_rl.mdp.MDPClass import MDP
 from simple_rl.tasks.pinball.PinballStateClass import PinballState
 from simple_rl.abstraction.action_abs.PredicateClass import Predicate
+import pdb
+import numpy as np
 
 class PinballMDP(MDP):
     """ Class for pinball domain. """
 
     def __init__(self, noise=0., episode_length=1000, reward_scale=10000., goal_predicate=None, render=False):
-        self.domain = Pinball(noise=noise, episodeCap=episode_length) #, configuration="/home/akhil/git-repos/rlpy/rlpy/Domains/PinballConfigs/pinball_medium.cfg")
+        self.domain = Pinball(noise=noise, episodeCap=episode_length) #, configuration="/home/akhil/git-repos/rlpy/rlpy/Domains/PinballConfigs/pinball_hard_single.cfg")
         self.render = render
         self.reward_scale = reward_scale
 
@@ -49,7 +51,12 @@ class PinballMDP(MDP):
         #     print("Hit goal state!")
         #     print(80 * "=")
 
-        return np.clip(reward, -1., 10000.)
+        # current_position = np.array([state.x, state.y])
+        # goal_position = np.array(self.domain.environment.target_pos)
+        #
+        # return -np.linalg.norm(current_position - goal_position)
+        return np.clip(reward, -1., 0.)
+
 
     def _transition_func(self, state, action):
         return self.next_state
@@ -59,6 +66,10 @@ class PinballMDP(MDP):
         init_state = tuple(init_observation[0])
         self.init_state = PinballState(*init_state)
         self.cur_state = copy.deepcopy(self.init_state)
+
+    def set_current_state(self, new_state):
+        self.cur_state = new_state
+        self.domain.state = new_state
 
     def default_goal_predicate(self):
         """

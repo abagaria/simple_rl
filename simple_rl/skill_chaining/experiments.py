@@ -15,7 +15,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import PretrainedOption
 from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
 
 class SkillChainingExperiments(object):
-    def __init__(self, mdp, num_episodes=100, num_instances=1, random_seed=0):
+    def __init__(self, mdp, num_episodes=200, num_instances=1, random_seed=0):
         self.mdp = mdp
         self.num_episodes = num_episodes
         self.num_instances = num_instances
@@ -90,10 +90,10 @@ class SkillChainingExperiments(object):
 
     def run_skill_chaining_with_different_seeds(self):
         # Same buffer length used by SC-agent and transfer learning SC agent
-        buffer_len = 14
+        buffer_len = 10
 
         random_seeds = [0, 24, 123, 4351]
-        max_num_options = [0, 4]
+        max_num_options = [4]
         scores = []
         episodes = []
         algorithms = []
@@ -108,14 +108,15 @@ class SkillChainingExperiments(object):
                 for i in range(self.num_instances):
                     print("\nInstance {} of {}".format(i + 1, self.num_instances))
 
-                    self.mdp = PinballMDP(noise=0., episode_length=20000, render=False)
+                    self.mdp = PinballMDP(noise=0., episode_length=20000, render=True)
                     self.state_size = self.mdp.init_state.state_space_size()
                     self.num_actions = len(self.mdp.actions)
 
-                    solver = DQNAgent(self.state_size, self.num_actions, self.num_actions, [], seed=random_seed, name="GlobalDQN")
-                    skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, rl_agent=solver,
+                    solver = DQNAgent(self.state_size, self.num_actions, self.num_actions, [], seed=random_seed, name="GlobalDQN", tensor_log=True)
+                    skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, rl_agent=solver, subgoal_reward=0.,
                                                          buffer_length=buffer_len, max_num_options=num_options, seed=random_seed)
                     episodic_scores = skill_chaining_agent.skill_chaining(num_episodes=self.num_episodes, num_steps=20000)
+                    skill_chaining_agent.perform_experiments()
                     skill_chaining_agent.save_all_dqns()
                     skill_chaining_agent.save_all_initiation_classifiers()
                     episode_numbers += list(range(self.num_episodes))
@@ -131,7 +132,7 @@ class SkillChainingExperiments(object):
         scores_dataframe["method"] = np.array(algorithms)
         sns.lineplot(x="episode", y="reward", hue="method", data=scores_dataframe, estimator=np.median)
         plt.title("Skill Chaining Learning Curves")
-        plt.savefig("skill_chaining_vs_dqn.png")
+        plt.savefig("skill_chaining_vs_dqn_euclidiean_reward_bocsvm.png")
         plt.show()
 
         self.data_frame = scores_dataframe
