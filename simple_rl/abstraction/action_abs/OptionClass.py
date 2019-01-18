@@ -100,7 +100,7 @@ class Option(object):
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
 		self.solver.target_network.initialize_with_bigger_network(self.global_solver.target_network)
 
-		self.initiation_classifier = svm.OneClassSVM(nu=0.01, gamma="scale")
+		self.initiation_classifier = svm.OneClassSVM(nu=0.01, gamma="auto")
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
 		self.initiation_data = np.empty((buffer_length, num_subgoal_hits_required), dtype=State)
