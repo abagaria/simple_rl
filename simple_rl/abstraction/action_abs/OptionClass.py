@@ -7,6 +7,7 @@ from sklearn import svm
 import numpy as np
 import pdb
 from copy import deepcopy
+import itertools
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
@@ -94,7 +95,8 @@ class Option(object):
 			self.policy = policy
 
 		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), len(overall_mdp.actions),
-							   trained_options=[], seed=self.seed, name=name)
+							   trained_options=[], seed=self.seed, name=name, use_double_dqn=global_solver.use_ddqn,
+							   lr=global_solver.learning_rate)
 		self.global_solver = global_solver
 
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
@@ -103,8 +105,8 @@ class Option(object):
 		self.initiation_classifier = svm.OneClassSVM(nu=0.01, gamma="auto")
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
-		self.initiation_data = np.empty((buffer_length, num_subgoal_hits_required), dtype=State)
-		self.experience_buffer = np.empty((buffer_length, num_subgoal_hits_required), dtype=Experience)
+		self.initiation_data = []
+		self.experience_buffer = []
 
 		self.overall_mdp = overall_mdp
 		self.num_goal_hits = 0
@@ -189,7 +191,11 @@ class Option(object):
 
 		# Convert the high dimensional states to positional states for ease of learning the initiation classifier
 		positional_states = [state.convert_to_positional_state() for state in states]
-		self.initiation_data[:, self.num_goal_hits-1] = np.asarray(positional_states)
+
+		last_state = positional_states[-1]
+		filtered_positional_states = list(filter(lambda s: np.linalg.norm(s.features() - last_state.features()) < 0.3, positional_states))
+
+		self.initiation_data.append(filtered_positional_states)
 
 	def add_experience_buffer(self, experience_queue):
 		"""
@@ -199,11 +205,11 @@ class Option(object):
 		"""
 		assert type(experience_queue) == deque, "Expected initiation experience sample to be a queue"
 		experiences = [Experience(*exp) for exp in experience_queue]
-		self.experience_buffer[:, self.num_goal_hits-1] = np.asarray(experiences)
+		self.experience_buffer.append(experiences)
 
 	@staticmethod
 	def _construct_feature_matrix(examples_matrix):
-		states = examples_matrix.reshape(-1)
+		states = list(itertools.chain.from_iterable(examples_matrix))
 		n_samples = len(states)
 		n_features = states[0].get_num_feats()
 		X = np.zeros((n_samples, n_features))
@@ -272,6 +278,39 @@ class Option(object):
 		else:
 			self.train_one_class_svm()
 
+	def compute_degree_overlap_with_parent(self):
+		if self.parent is None:
+			return 0.
+		parent_initiation_data = list(itertools.chain.from_iterable(self.parent.initiation_data))
+		num_inside, total_num = 0., 0
+		for state in parent_initiation_data:
+			total_num += 1
+			if self.is_init_true(state):
+				num_inside += 1
+		return num_inside / total_num
+
+	@staticmethod
+	def get_center_of_initiation_data(initiation_data):
+		initiation_states = list(itertools.chain.from_iterable(initiation_data))
+		x_positions = [state.x for state in initiation_states]
+		y_positions = [state.y for state in initiation_states]
+		x_center = (max(x_positions) + min(x_positions)) / 2.
+		y_center = (max(y_positions) + min(y_positions)) / 2.
+		return np.array([x_center, y_center])
+
+	def is_option_further_than_parent(self):
+		if self.parent is None:
+			return True
+		parent_center_point = self.get_center_of_initiation_data(self.parent.initiation_data)
+		self_center_point = self.get_center_of_initiation_data(self.initiation_data)
+		return (self_center_point[1] > parent_center_point[1]) or \
+			   ((parent_center_point[1] - self_center_point[1]) < 0.01)
+
+	def is_beneficial_to_construct_option(self):
+		overlap_condition = self.compute_degree_overlap_with_parent() < 0.8
+		relation_condition = self.is_option_further_than_parent()
+		return overlap_condition and relation_condition
+
 	def initialize_option_policy(self):
 		# Initialize the local DQN's policy with the weights of the global DQN
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
@@ -279,7 +318,7 @@ class Option(object):
 		self.solver.epsilon = self.global_solver.epsilon
 
 		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
-		experience_buffer = self.experience_buffer.reshape(-1)
+		experience_buffer = list(itertools.chain.from_iterable(self.experience_buffer))
 		for experience in experience_buffer:
 			state, a, r, s_prime = experience.serialize()
 			if self.is_init_true(state) and not self.is_term_true(state) and self.is_term_true(s_prime):
@@ -318,6 +357,12 @@ class Option(object):
 
 		if self.num_goal_hits >= self.num_subgoal_hits_required:
 			self.train_initiation_classifier()
+			# pdb.set_trace()
+			if not self.is_beneficial_to_construct_option():
+				self.num_goal_hits = 0
+				self.initiation_data = []
+				# self.experience_buffer = []
+				return False
 			self.initialize_option_policy()
 			return True
 		return False

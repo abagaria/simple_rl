@@ -38,12 +38,12 @@ class PinballMDP(MDP):
         Returns:
             next_state (PinballState)
         """
-        reward, obs, is_terminal, possible_actions = self.domain.step(action)
+        reward, obs, done, possible_actions = self.domain.step(action)
 
         if self.render:
             self.domain.showDomain(action)
 
-        self.next_state = PinballState(*tuple(obs), is_terminal=is_terminal)
+        self.next_state = PinballState(*tuple(obs), is_terminal=done)
 
         # if self.default_goal_predicate().is_true(self.next_state):
         #     print()
@@ -55,7 +55,7 @@ class PinballMDP(MDP):
         # goal_position = np.array(self.domain.environment.target_pos)
         #
         # return -np.linalg.norm(current_position - goal_position)
-        return np.clip(reward, -1., 0.)
+        return np.clip(reward, -0.001, 10.)
 
 
     def _transition_func(self, state, action):
@@ -65,11 +65,12 @@ class PinballMDP(MDP):
         init_observation = self.domain.s0()
         init_state = tuple(init_observation[0])
         self.init_state = PinballState(*init_state)
-        self.cur_state = copy.deepcopy(self.init_state)
+        cur_state = copy.deepcopy(self.init_state)
+        self.set_current_state(cur_state)
 
     def set_current_state(self, new_state):
         self.cur_state = new_state
-        self.domain.state = new_state
+        self.domain.state = new_state.features()
 
     def default_goal_predicate(self):
         """

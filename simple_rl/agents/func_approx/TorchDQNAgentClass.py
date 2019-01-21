@@ -27,7 +27,7 @@ GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
 LR = 5e-4  # learning rate
 UPDATE_EVERY = 1  # how often to update the network
-NUM_EPISODES = 150
+NUM_EPISODES = 100
 NUM_STEPS = 20000
 
 class EpsilonSchedule:
@@ -139,11 +139,13 @@ class DQNAgent(Agent):
     """Interacts with and learns from the environment."""
 
     def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent",
-                 eps_start=1., tensor_log=False, lr=LR):
+                 eps_start=1., tensor_log=False, lr=LR, use_double_dqn=False):
         self.state_size = state_size
         self.action_size = action_size
         self.num_original_actions = num_original_actions
         self.trained_options = trained_options
+        self.learning_rate = lr
+        self.use_ddqn = use_double_dqn
         self.seed = random.seed(seed)
         self.tensor_log = tensor_log
 
@@ -155,7 +157,7 @@ class DQNAgent(Agent):
         #     self.optimizer = optim.Adam(self.policy_network.parameters(), lr=LR)
         # else:
         #     self.optimizer = optim.Adam(self.policy_network.parameters(), lr=LR)
-        self.optimizer = optim.Adam(self.policy_network.parameters(), lr=LR)
+        self.optimizer = optim.Adam(self.policy_network.parameters(), lr=lr)
 
 
         # Replay memory
@@ -173,13 +175,24 @@ class DQNAgent(Agent):
         self.num_epsilon_updates = 0
 
         if os.path.exists(name):
-            print("Deleting folder: {}".format(name))
+            # print("Deleting folder: {}".format(name))
             shutil.rmtree(name)
 
         if self.tensor_log:
             self.writer = SummaryWriter(name)
 
+        print("\nCreating {} with lr={} and ddqn={}\n".format(name, self.learning_rate, self.use_ddqn))
+
         Agent.__init__(self, name, range(action_size), GAMMA)
+
+    def set_new_learning_rate(self, learning_rate):
+        self.learning_rate = learning_rate
+        for group in self.optimizer.param_groups:
+            group['lr'] = learning_rate
+
+    def reduce_learning_rate(self):
+        new_learning_rate = self.learning_rate / 10.
+        self.set_new_learning_rate(new_learning_rate)
 
     def initialize_optimizer_with_smaller_agent(self, smaller_agent):
 
@@ -296,7 +309,16 @@ class DQNAgent(Agent):
         states, actions, rewards, next_states, dones = experiences
 
         # Get max predicted Q values (for next states) from target model
-        Q_targets_next = self.target_network(next_states).detach().max(1)[0].unsqueeze(1)
+        if self.use_ddqn:
+
+            self.policy_network.eval()
+            with torch.no_grad():
+                selected_actions = self.policy_network(next_states).argmax(dim=1).unsqueeze(1)
+            self.policy_network.train()
+
+            Q_targets_next = self.target_network(next_states).detach().gather(1, selected_actions)
+        else:
+            Q_targets_next = self.target_network(next_states).detach().max(1)[0].unsqueeze(1)
         # Compute Q targets for current states
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
 
@@ -310,9 +332,9 @@ class DQNAgent(Agent):
         self.optimizer.zero_grad()
         loss.backward()
 
-        # Gradient clipping: tried but the results looked worse -- needs more testing
-        for param in self.policy_network.parameters():
-            param.grad.data.clamp_(-1, 1)
+        # # Gradient clipping: tried but the results looked worse -- needs more testing
+        # for param in self.policy_network.parameters():
+        #     param.grad.data.clamp_(-1, 1)
 
         self.optimizer.step()
 
@@ -404,6 +426,7 @@ class ReplayBuffer:
         return len(self.memory)
 
 def train(agent, mdp, episodes, steps):
+    from simple_rl.skill_chaining.skill_chaining_utils import render_value_function
     per_episode_scores = []
     last_10_scores = deque(maxlen=10)
     iteration_counter = 0
@@ -420,7 +443,8 @@ def train(agent, mdp, episodes, steps):
             agent.update_epsilon()
             state = next_state
             score += reward
-            agent.writer.add_scalar("Score", score, iteration_counter)
+            if agent.tensor_log:
+                agent.writer.add_scalar("Score", score, iteration_counter)
             if state.is_terminal():
                 break
         last_10_scores.append(score)
@@ -429,6 +453,8 @@ def train(agent, mdp, episodes, steps):
         print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)), end="")
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)))
+        if episode % 5 == 0:
+            render_value_function(agent, device, episode=episode)
     return per_episode_scores
 
 def test_forward_pass(dqn_agent, mdp):
@@ -460,6 +486,13 @@ def main(num_training_episodes=NUM_EPISODES, to_plot=False):
 
 if __name__ == '__main__':
     overall_mdp = PinballMDP(noise=0.0, episode_length=20000, render=True)
+    ddqn_agent = DQNAgent(state_size=overall_mdp.init_state.state_space_size(), action_size=len(overall_mdp.actions),
+                         num_original_actions=len(overall_mdp.actions), trained_options=[], seed=0, name="GlobalDDQN",
+                          tensor_log=False, use_double_dqn=True)
+    ddqn_episode_scores = train(ddqn_agent, overall_mdp, NUM_EPISODES, NUM_STEPS)
+
+    overall_mdp = PinballMDP(noise=0.0, episode_length=20000, render=True)
     dqn_agent = DQNAgent(state_size=overall_mdp.init_state.state_space_size(), action_size=len(overall_mdp.actions),
-                         num_original_actions=len(overall_mdp.actions), trained_options=[], seed=0, name="GlobalDQN", tensor_log=True)
-    episode_scores = train(dqn_agent, overall_mdp, NUM_EPISODES, NUM_STEPS)
+                         num_original_actions=len(overall_mdp.actions), trained_options=[], seed=0, name="GlobalDQN",
+                         tensor_log=False, use_double_dqn=False)
+    dqn_episode_scores = train(dqn_agent, overall_mdp, NUM_EPISODES, NUM_STEPS)

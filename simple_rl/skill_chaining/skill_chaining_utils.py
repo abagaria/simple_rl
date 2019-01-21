@@ -4,9 +4,12 @@ sns.set()
 import matplotlib.pyplot as plt
 import numpy as np
 import time
+import torch
+import scipy.interpolate
 
 # Other imports.
 from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
+from simple_rl.tasks.pinball.PinballStateClass import PinballState
 
 
 def plot_trajectory(trajectory, show=True, color='k'):
@@ -93,6 +96,9 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     for row in range(X.shape[0]):
         plt.scatter(X0[row], X1[row], c='k', alpha=0.5)
 
+    center_point = option.get_center_of_initiation_data(option.initiation_data)
+    plt.scatter(center_point[0], center_point[1], s=50, marker="x", c="black")
+
     if is_pinball_domain:
         plt.xlim((0., 1.))
         plt.ylim((0., 1.))
@@ -104,6 +110,49 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     plt.ylabel("ypos")
 
     plt.savefig("{}_one_class_svm_{}.png".format(option.name, time.time()))
+    plt.close()
+
+def get_qvalue(agent, state, device):
+    state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+    with torch.no_grad():
+        action_values = agent.policy_network(state)
+    return action_values
+
+def get_values(solver, device):
+    values = []
+    for x in np.arange(0., 1.1, 0.1):
+        for y in np.arange(0., 1.1, 0.1):
+            v = []
+            for vx in [-1., -0.5, 0., 0.5, 1.]:
+                for vy in [-1., -0.5, 0., 0.5, 1.]:
+                    s = PinballState(x, y, vx, vy)
+                    v.append(get_qvalue(solver, s.features(), device).max().item())
+            values.append(np.mean(v))
+    return values
+
+def get_grid_states():
+    ss = []
+    for x in np.arange(0., 1.1, 0.1):
+        for y in np.arange(0., 1.1, 0.1):
+            s = PinballState(x, y, 0, 0)
+            ss.append(s)
+    return ss
+
+def render_value_function(solver, device, episode=None, show=False):
+    states = get_grid_states()
+    values = get_values(solver, device)
+    x = np.array([state.x for state in states])
+    y = np.array([state.y for state in states])
+    xi, yi = np.linspace(x.min(), x.max(), 1000), np.linspace(y.min(), y.max(), 1000)
+    xx, yy = np.meshgrid(xi, yi)
+    rbf = scipy.interpolate.Rbf(x, y, values, function="linear")
+    zz = rbf(xx, yy)
+    plt.imshow(zz, vmin=min(values), vmax=max(values), extent=[x.min(), x.max(), y.min(), y.max()])
+    plt.colorbar()
+    # plt.gca().invert_yaxis()
+    if show: plt.show()
+    name = solver.name if episode is None else solver.name + "_{}".format(episode)
+    plt.savefig("{}_value_function.png".format(name))
     plt.close()
 
 def sample_termination_set_classifier(option):
