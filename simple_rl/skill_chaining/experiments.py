@@ -238,11 +238,64 @@ class SkillChainingExperiments(object):
 
         return scores_dataframe
 
+    def tune_skill_chaining_hyper_params(self):
+        buffer_len = 15
+        max_num_options = 5
+        subgoal_rewards = [0., 1., 5., 10.]
+        learning_rate = 5e-4  # 0.1 of the one we usually use
+        random_seeds = [0, 20, 123, 4351] # Because I have only tested the init sets for seed=0
+        scores = []
+        episodes = []
+        algorithms = []
+
+        for subgoal_reward in subgoal_rewards:
+            for random_seed in random_seeds:
+                print()
+                print("=" * 80)
+                print("Training skill chaining agent (seed={}, subgoal_reward={})".format(random_seed, subgoal_reward))
+                print("=" * 80)
+                list_scores, episode_numbers = [], []
+                for i in range(self.num_instances):
+                    print("\nInstance {} of {}".format(i + 1, self.num_instances))
+
+                    self.mdp = PinballMDP(noise=0., episode_length=20000, render=True)
+                    self.state_size = self.mdp.init_state.state_space_size()
+                    self.num_actions = len(self.mdp.actions)
+
+                    solver = DQNAgent(self.state_size, self.num_actions, self.num_actions, [], seed=random_seed,
+                                      name="GlobalDDQN", tensor_log=False, use_double_dqn=True, lr=learning_rate)
+                    skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, rl_agent=solver,
+                                                         subgoal_reward=subgoal_reward, buffer_length=buffer_len,
+                                                         max_num_options=max_num_options, seed=random_seed, lr_decay=False)
+                    episodic_scores, episodic_durations = skill_chaining_agent.skill_chaining(
+                        num_episodes=self.num_episodes, num_steps=20000)
+                    episode_numbers += list(range(self.num_episodes))
+                    list_scores += episodic_scores
+                scores += list_scores
+                episodes += episode_numbers
+                algorithms += ["subgoalReward={}".format(subgoal_reward)] * len(episode_numbers)
+        scores_dataframe = pd.DataFrame(np.array(scores), columns=["reward"])
+        scores_dataframe["episode"] = np.array(episodes)
+
+        plt.figure()
+        scores_dataframe["method"] = np.array(algorithms)
+        sns.lineplot(x="episode", y="reward", hue="method", data=scores_dataframe, estimator=np.median)
+        plt.title("SC LCs (D-DQN, +/- subgoal reward)")
+        plt.savefig("sc_plus_minus_subgoal_rewards.png")
+        plt.show()
+
+        self.data_frame = scores_dataframe
+        scores_dataframe.to_pickle("sc_plus_minus_subgoal_rewards.pkl")
+
+        return scores_dataframe
+
+
 if __name__ == '__main__':
     experiments = SkillChainingExperiments(None)
     # experiments.compare_agents()
     # subgoal_scores = experiments.compare_hyperparameter_subgoal_reward()
     # experiments.run_skill_chaining_with_different_seeds()
-    scdf = experiments.run_skill_chaining_with_different_seeds()
+    # scdf = experiments.run_skill_chaining_with_different_seeds()
     # lrdf = experiments.ddqn_hyper_params()
     # dddf = experiments.dqn_vs_ddqn()
+    scdf = experiments.tune_skill_chaining_hyper_params()
