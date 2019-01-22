@@ -43,7 +43,7 @@ class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
 				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False,
-				 num_subgoal_hits_required=3, subgoal_reward=5000., give_negative_rewards=False,
+				 num_subgoal_hits_required=3, subgoal_reward=5000., give_negative_rewards=True,
 				 max_steps=20000, seed=0, parent=None, classifier_type="bocsvm"):
 		'''
 		Args:
@@ -99,7 +99,7 @@ class Option(object):
 
 		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), len(overall_mdp.actions),
 							   trained_options=[], seed=self.seed, name=name, use_double_dqn=global_solver.use_ddqn,
-							   lr=global_solver.learning_rate)
+							   lr=global_solver.learning_rate, tensor_log=global_solver.tensor_log)
 		self.global_solver = global_solver
 
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
@@ -123,6 +123,11 @@ class Option(object):
 		self.num_times_indirect_update = 0
 		self.num_indirect_updates = []
 		self.policy_refinement_data = []
+
+		self.num_option_updates = 0
+		self.num_successful_updates = 0
+		self.num_unsuccessful_updates = 0
+		self.num_executions = 0
 
 	def __str__(self):
 		return self.name
@@ -325,15 +330,23 @@ class Option(object):
 			midst = self.is_init_true(s) and not self.is_term_true(s) and not self.is_term_true(s_prime)
 
 		if successful:
-			self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), self.is_term_true(s_prime))
+			assert self.is_term_true(s_prime), "Thought {} was a successful transition".format(s_prime)
+			self.num_successful_updates += 1
+			self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), True)
 
 		elif failed and self.give_negatives_subgoal_rewards:
-			pdb.set_trace()
-			self.solver.step(s.features(), a, r - self.subgoal_reward, s_prime.features(), self.is_term_true(s_prime))
+			assert not self.is_term_true(s_prime), "Thought {} was supposed to be failure state".format(s_prime)
+			self.num_unsuccessful_updates += 1
+			self.solver.step(s.features(), a, r - self.subgoal_reward, s_prime.features(), True)
 
 		# In the middle of executing the option
 		elif midst:
-			self.solver.step(s.features(), a, r, s_prime.features(), self.is_term_true(s_prime))
+			self.solver.step(s.features(), a, r, s_prime.features(), False)
+
+		self.num_option_updates += 1
+		if self.solver.tensor_log:
+			self.solver.writer.add_scalar("PositiveExecutions", self.num_successful_updates, self.num_option_updates)
+			self.solver.writer.add_scalar("NegativeExecutions", self.num_unsuccessful_updates, self.num_option_updates)
 
 	def initialize_option_policy(self):
 		# Initialize the local DQN's policy with the weights of the global DQN
@@ -465,6 +478,7 @@ class Option(object):
 			# ---------------------------------------------------------------------------------
 
 			option_transitions = []
+			self.num_executions += 1
 
 			while self.is_init_true(state) and not self.is_term_true(state) and \
 					not state.is_terminal() and step_number < self.max_steps:
@@ -488,6 +502,9 @@ class Option(object):
 				step_number += 1
 
 			self.ending_points.append(state)
+
+			if self.solver.tensor_log:
+				self.solver.writer.add_scalar("ExecutionLength", len(option_transitions), self.num_executions)
 
 			return option_transitions
 

@@ -238,7 +238,7 @@ class SkillChaining(object):
                     uo_episode_terminated = True
 
                     if untrained_option.train(experience_buffer, state_buffer):
-                        plot_one_class_initiation_classifier(untrained_option)
+                        # plot_one_class_initiation_classifier(untrained_option)
                         self._augment_agent_with_new_option(untrained_option)
                         new_untrained_option = untrained_option.get_child_option(len(self.trained_options))
                         untrained_option = new_untrained_option
@@ -260,13 +260,13 @@ class SkillChaining(object):
         print('\rEpisode {}\tAverage Score: {:.2f}\tDuration: {:.2f} steps'.format(episode, np.mean(last_10_scores), np.mean(last_10_durations)), end="")
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}\tDuration: {:.2f} steps'.format(episode, np.mean(last_10_scores), np.mean(last_10_durations)))
-        if episode % 5 == 0:
+        if not self.global_solver.tensor_log and episode % 5 == 0:
             render_value_function(self.global_solver, torch.device("cuda"), episode=episode)
         for trained_option in self.trained_options:  # type: Option
             self.num_option_executions[trained_option.name].append(episode_option_executions[trained_option.name])
             if self.global_solver.tensor_log:
                 self.global_solver.writer.add_scalar("{}_executions".format(trained_option.name), episode_option_executions[trained_option.name], episode)
-            if episode % 5 == 0:
+            if not self.global_solver.tensor_log and episode % 5 == 0:
                 render_value_function(trained_option.solver, torch.device("cuda"), episode=episode)
         return False
 

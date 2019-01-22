@@ -6,6 +6,8 @@ import numpy as np
 import time
 import torch
 import scipy.interpolate
+from scipy.misc import imread
+import pdb
 
 # Other imports.
 from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
@@ -85,6 +87,7 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     trained_classifier = option.initiation_classifier
     classifier_name = "OCSVM"
     legend = {}
+    background_image = imread("pinball_domain.png")
 
     plt.figure(figsize=(8.0, 5.0))
     X = get_one_class_init_data(option)
@@ -101,7 +104,8 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     plot_all_trajectories_in_initiation_data(option.initiation_data)
 
     center_point = option.get_center_of_initiation_data(option.initiation_data)
-    plt.scatter(center_point[0], center_point[1], s=50, marker="x", c="black")
+    plt.scatter(center_point[0], center_point[1], s=50, marker="x", c="black", zorder=1)
+    plt.imshow(background_image, zorder=0, alpha=0.5, extent=[0., 1., 1., 0.])
 
     if is_pinball_domain:
         plt.xlim((0., 1.))
