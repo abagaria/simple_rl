@@ -1,5 +1,6 @@
 # Python imports.
 from __future__ import print_function
+import numpy as np
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
@@ -12,6 +13,9 @@ class PinballState(State):
         self.ydot = ydot
 
         State.__init__(self, data=[x, y, xdot, ydot], is_terminal=is_terminal)
+
+    def get_position(self):
+        return np.array([self.x, self.y])
 
     def convert_to_positional_state(self):
         return PositionalPinballState(self.x, self.y, self.is_terminal())
@@ -58,3 +62,6 @@ class PositionalPinballState(State):
 
     def __ne__(self, other):
         return not self == other
+
+    def get_position(self):
+        return np.array([self.x, self.y])

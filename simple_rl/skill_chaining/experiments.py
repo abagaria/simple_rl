@@ -94,7 +94,7 @@ class SkillChainingExperiments(object):
         subgoal_reward = 1.0
         learning_rate = 5e-4  # 0.1 of the one we usually use
         random_seeds = [0] #, 20, 123, 4351] Because I have only tested the init sets for seed=0
-        max_num_options = [4, 0]
+        max_num_options = [5, 0]
         scores = []
         episodes = []
         algorithms = []

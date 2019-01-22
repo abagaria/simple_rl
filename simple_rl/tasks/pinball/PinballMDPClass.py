@@ -79,7 +79,9 @@ class PinballMDP(MDP):
         Returns:
             goal_predicate (Predicate)
         """
-        return Predicate(func=lambda s: self.domain.environment.episode_ended())
+        target_pos = np.array(self.domain.environment.target_pos)
+        target_rad = self.domain.environment.target_rad
+        return Predicate(func=lambda s: np.linalg.norm(s.get_position() - target_pos) < target_rad)
 
     @staticmethod
     def is_primitive_action(action):

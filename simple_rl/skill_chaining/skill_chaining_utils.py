@@ -12,32 +12,35 @@ from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import Positio
 from simple_rl.tasks.pinball.PinballStateClass import PinballState
 
 
-def plot_trajectory(trajectory, show=True, color='k'):
+def plot_trajectory(trajectory, show=True, color='k', with_experiences=False):
     """
     Given State objects, plot their x and y positions and shade them based on time
     Args:
         trajectory (list): list of State objects
     """
+
     for i, state in enumerate(trajectory):
+        if with_experiences:
+            state = state.state
         plt.scatter(state.x, state.y, c=color, alpha=float(i) / len(trajectory))
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.title('Trajectory (Bolder color implies more recent point in time)')
     if show: plt.show()
 
-def plot_all_trajectories_in_initiation_data(initiation_data):
+def plot_all_trajectories_in_initiation_data(initiation_data, with_experiences=False, new_fig=False, show=False, option_name=""):
     """
     Plot all the state buffers of an option
     Args:
         initiation_data (list) of deque objects where each queue represents a new state buffer (trajectory)
     """
-    assert initiation_data.shape[1] == 10, "Assuming that input is a list of 10 queues."
-    plt.figure()
+    if new_fig: plt.figure()
     possible_colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
-    for i in range(initiation_data.shape[1]):
-        trajectory = initiation_data[:, i]
-        plot_trajectory(trajectory, show=False, color=possible_colors[i])
-    plt.show()
+    for i, trajectory in enumerate(initiation_data):
+        plot_trajectory(trajectory, show=show, color=possible_colors[i], with_experiences=with_experiences)
+    if new_fig:
+        plt.xlim((0., 1.))
+        plt.ylim((0., 1.))
+        plt.gca().invert_yaxis()
+        plt.title('Option Policy Init Data')
+        plt.savefig("{}_policy_init_data.png".format(option_name))
 
 def make_meshgrid(x, y, h=.02):
     x_min, x_max = x.min() - 1, x.max() + 1
@@ -91,10 +94,11 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     Z1 = Z1.reshape(xx.shape)
     legend[classifier_name] = plt.contour(xx, yy, Z1, levels=[0], linewidths=2, colors="m")
 
-    plt.plot(X0, X1, '.')
+    # plt.plot(X0, X1, '.')
 
-    for row in range(X.shape[0]):
-        plt.scatter(X0[row], X1[row], c='k', alpha=0.5)
+    # for row in range(X.shape[0]):
+    #     plt.scatter(X0[row], X1[row], c='k', alpha=0.5)
+    plot_all_trajectories_in_initiation_data(option.initiation_data)
 
     center_point = option.get_center_of_initiation_data(option.initiation_data)
     plt.scatter(center_point[0], center_point[1], s=50, marker="x", c="black")

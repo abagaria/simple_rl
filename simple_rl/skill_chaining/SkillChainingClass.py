@@ -94,11 +94,8 @@ class SkillChaining(object):
             trained_option.global_solver = new_global_agent
 
     def make_off_policy_updates_for_options(self, state, action, reward, next_state):
-        for option in self.trained_options:
-            if option.is_init_true(state) and not option.is_term_true(state) and option.is_term_true(next_state):
-                option.solver.step(state.features(), action, reward + self.subgoal_reward, next_state.features(), option.is_term_true(next_state))
-            elif option.is_init_true(state):
-                option.solver.step(state.features(), action, reward, next_state.features(), option.is_term_true(next_state))
+        for option in self.trained_options: # type: Option
+            option.update_option_solver(state, action, reward, next_state)
 
     def take_action(self, state, step_number, episode_option_executions):
         """

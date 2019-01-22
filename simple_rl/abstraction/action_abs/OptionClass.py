@@ -43,7 +43,8 @@ class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
 				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False,
-				 num_subgoal_hits_required=3, subgoal_reward=5000., max_steps=20000, seed=0, parent=None, classifier_type="bocsvm"):
+				 num_subgoal_hits_required=3, subgoal_reward=5000., give_negative_rewards=False,
+				 max_steps=20000, seed=0, parent=None, classifier_type="bocsvm"):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -60,6 +61,7 @@ class Option(object):
 			pretrained (bool)
 			num_subgoal_hits_required (int)
 			subgoal_reward (float)
+			give_negative_rewards (bool)
 			max_steps (int)
 			seed (int)
 			parent (Option)
@@ -75,6 +77,7 @@ class Option(object):
 		self.pretrained = pretrained
 		self.num_subgoal_hits_required = num_subgoal_hits_required
 		self.subgoal_reward = subgoal_reward
+		self.give_negatives_subgoal_rewards = give_negative_rewards
 		self.max_steps = max_steps
 		self.seed = seed
 		self.parent = parent
@@ -265,6 +268,7 @@ class Option(object):
 										name=self.name + '_init_predicate')
 
 	def train_one_class_svm(self):
+		assert len(self.initiation_data) == self.num_subgoal_hits_required, "Expected init data to be a list of lists"
 		positive_feature_matrix = self._construct_feature_matrix(self.initiation_data)
 		self.initiation_classifier.fit(positive_feature_matrix)
 		# The OneClassSVM.predict() returns 1 for in-class samples, and -1 for out-of-class samples
@@ -311,21 +315,41 @@ class Option(object):
 		relation_condition = self.is_option_further_than_parent()
 		return overlap_condition and relation_condition
 
+	def update_option_solver(self, s, a, r, s_prime):
+		successful = self.is_init_true(s) and self.is_term_true(s_prime) and not self.is_term_true(s)
+		failed = self.is_init_true(s) and not self.is_init_true(s_prime) and not self.is_term_true(s_prime)
+
+		if self.give_negatives_subgoal_rewards:
+			midst = self.is_init_true(s) and self.is_init_true(s_prime) and not self.is_term_true(s) and not self.is_term_true(s_prime)
+		else:
+			midst = self.is_init_true(s) and not self.is_term_true(s) and not self.is_term_true(s_prime)
+
+		if successful:
+			self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), self.is_term_true(s_prime))
+
+		elif failed and self.give_negatives_subgoal_rewards:
+			pdb.set_trace()
+			self.solver.step(s.features(), a, r - self.subgoal_reward, s_prime.features(), self.is_term_true(s_prime))
+
+		# In the middle of executing the option
+		elif midst:
+			self.solver.step(s.features(), a, r, s_prime.features(), self.is_term_true(s_prime))
+
 	def initialize_option_policy(self):
 		# Initialize the local DQN's policy with the weights of the global DQN
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
 		self.solver.target_network.initialize_with_bigger_network(self.global_solver.target_network)
 		self.solver.epsilon = self.global_solver.epsilon
 
+		## $ Uncomment to plot policy initiation data
+		# from simple_rl.skill_chaining.skill_chaining_utils import plot_all_trajectories_in_initiation_data
+		# plot_all_trajectories_in_initiation_data(self.experience_buffer, True, True, False, self.name)
+
 		# Fitted Q-iteration on the experiences that led to triggering the current option's termination condition
 		experience_buffer = list(itertools.chain.from_iterable(self.experience_buffer))
 		for experience in experience_buffer:
 			state, a, r, s_prime = experience.serialize()
-			if self.is_init_true(state) and not self.is_term_true(state) and self.is_term_true(s_prime):
-				self.solver.step(state.features(), a, r + self.subgoal_reward, s_prime.features(), self.is_term_true(s_prime))
-
-			elif self.is_init_true(state) or self.is_init_true(s_prime):
-				self.solver.step(state.features(), a, r, s_prime.features(), self.is_term_true(s_prime))
+			self.update_option_solver(state, a, r, s_prime)
 
 		# TODO: Experimental
 		# We only see 1 positive reward transition for each trajectory (which can be as long as 15000 steps)
@@ -349,9 +373,9 @@ class Option(object):
 		self.num_goal_hits += 1
 
 		# Augment the most recent experience with the subgoal reward
-		final_transition = experience_buffer[-1]
-		experience_buffer[-1] = (final_transition[0], final_transition[1],
-								 final_transition[2] + self.subgoal_reward, final_transition[3])
+		# final_transition = experience_buffer[-1]
+		# experience_buffer[-1] = (final_transition[0], final_transition[1],
+		# 						 final_transition[2] + self.subgoal_reward, final_transition[3])
 		self.add_initiation_experience(state_buffer)
 		self.add_experience_buffer(experience_buffer)
 
@@ -361,7 +385,7 @@ class Option(object):
 			if not self.is_beneficial_to_construct_option():
 				self.num_goal_hits = 0
 				self.initiation_data = []
-				# self.experience_buffer = []
+				self.experience_buffer = []
 				return False
 			self.initialize_option_policy()
 			return True
@@ -388,7 +412,8 @@ class Option(object):
 								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
 								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length,
 								  pretrained=pretrained, num_subgoal_hits_required=num_subgoal_hits,
-								  subgoal_reward=subgoal_reward, seed=self.seed, parent=self, classifier_type="ocsvm")
+								  subgoal_reward=subgoal_reward, give_negative_rewards=self.give_negatives_subgoal_rewards,
+								  seed=self.seed, parent=self, classifier_type="ocsvm")
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):
@@ -448,15 +473,8 @@ class Option(object):
 				action = self.solver.act(state.features(), epsilon)
 				reward, next_state = mdp.execute_agent_action(action)
 
-				augmented_reward = deepcopy(reward)
-
-				# If we reach the current option's subgoal,
-				if self.is_term_true(next_state):
-					# print("\rEntered the termination set of {}".format(self.name))
-					augmented_reward += self.subgoal_reward
-
 				if not self.pretrained:
-					self.solver.step(state.features(), action, augmented_reward, next_state.features(), self.is_term_true(next_state))
+					self.update_option_solver(state, action, reward, next_state)
 
 				# Note: We are not using the option augmented subgoal reward while making off-policy updates to global DQN
 				self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
