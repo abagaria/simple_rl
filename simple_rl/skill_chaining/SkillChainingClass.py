@@ -116,7 +116,8 @@ class SkillChaining(object):
         if self.mdp.is_primitive_action(action):
             reward, next_state = self.mdp.execute_agent_action(action)
             self.make_off_policy_updates_for_options(state, action, reward, next_state)
-            self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+            assert self.mdp.is_primitive_action(action), "Expected primitive action, got {}".format(action)
+            self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal(), num_steps=1)
             self.global_solver.update_epsilon()
 
             self.global_execution_states.append(state)
@@ -125,18 +126,18 @@ class SkillChaining(object):
         # Selected option
         option_idx = action - len(self.mdp.actions)
         selected_option = self.trained_options[option_idx] # type: Option
-        option_transitions = selected_option.execute_option_in_mdp(self.mdp, step_number)
+        option_transitions, discounted_reward = selected_option.execute_option_in_mdp(self.mdp, step_number)
 
         option_reward = self.get_reward_from_experiences(option_transitions)
         next_state = self.get_next_state_from_experiences(option_transitions)
-        augmented_reward = option_reward # max(-1., option_reward) # + (selected_option.is_term_true(next_state) * self.subgoal_reward))
 
         # Add data to train Q(s, o)
-        self.global_solver.step(state.features(), action, augmented_reward, next_state.features(), next_state.is_terminal())
+        assert not self.mdp.is_primitive_action(action), "Expected an option, got {}".format(action)
+        self.global_solver.step(state.features(), action, discounted_reward, next_state.features(), next_state.is_terminal(), num_steps=len(option_transitions))
 
         # Debug logging
         episode_option_executions[selected_option.name] += 1
-        self.option_rewards[selected_option.name].append(augmented_reward)
+        self.option_rewards[selected_option.name].append(discounted_reward)
 
         sampled_q_value = self.sample_qvalue(selected_option)
         self.option_qvalues[selected_option.name].append(sampled_q_value)
@@ -188,7 +189,7 @@ class SkillChaining(object):
                 return False
         return len(self.trained_options) < self.max_num_options
 
-    def skill_chaining(self, num_episodes=75, num_steps=20000):
+    def skill_chaining(self, num_episodes=70, num_steps=20000):
         from simple_rl.abstraction.action_abs.OptionClass import Option
         goal_option = Option(init_predicate=None, term_predicate=self.overall_goal_predicate, overall_mdp=self.mdp,
                              init_state=self.mdp.init_state, actions=self.original_actions, policy={},
@@ -214,13 +215,14 @@ class SkillChaining(object):
             score = 0.
             step_number = 0
             uo_episode_terminated = False
+            tree_flag = False
             state = deepcopy(self.mdp.init_state)
             experience_buffer = deque([], maxlen=self.buffer_length)
             state_buffer = deque([], maxlen=self.buffer_length)
             episode_option_executions = defaultdict(lambda : 0)
 
             # if self.lr_decay and (episode > 0) and (episode % 40 == 0):
-            if self.lr_decay and (episode == 10 or episode == 40):
+            if self.lr_decay and (episode > 0 and episode % 40 == 0):
                 self.global_solver.reduce_learning_rate()
                 print("\rSetting new learning rate to {}\n\n".format(self.global_solver.learning_rate))
 
@@ -238,10 +240,32 @@ class SkillChaining(object):
                     uo_episode_terminated = True
 
                     if untrained_option.train(experience_buffer, state_buffer):
-                        # plot_one_class_initiation_classifier(untrained_option)
+                        if not self.global_solver.tensor_log: render_value_function(self.global_solver, torch.device("cuda"), episode=episode-1000)
+                        if not self.global_solver.tensor_log: plot_one_class_initiation_classifier(untrained_option)
                         self._augment_agent_with_new_option(untrained_option)
+                        if not self.global_solver.tensor_log: render_value_function(self.global_solver, torch.device("cuda"), episode=episode+1000)
                         new_untrained_option = untrained_option.get_child_option(len(self.trained_options))
                         untrained_option = new_untrained_option
+
+                if "tree" in untrained_option.name and untrained_option.is_term_true(state) and not tree_flag \
+                        and len(experience_buffer) == self.buffer_length:
+                    num_training_trajectories = len(untrained_option.initiation_data)
+                    if untrained_option.train(experience_buffer, state_buffer):
+                        if not self.global_solver.tensor_log: plot_one_class_initiation_classifier(untrained_option)
+                        self._augment_agent_with_new_option(untrained_option)
+                        untrained_option = untrained_option.get_child_option(len(self.trained_options))
+                        tree_flag = True
+
+                    if len(untrained_option.initiation_data) > num_training_trajectories:
+                        tree_flag = True
+
+                branching_option_idx = 3
+                if not self.should_create_more_options() and len(self.trained_options) > branching_option_idx:
+                    if len(self.trained_options[branching_option_idx].children) < 2:
+                        new_untrained_option = self.trained_options[branching_option_idx].get_child_option(len(self.trained_options))
+                        new_untrained_option.name += "_tree"
+                        untrained_option = new_untrained_option
+
                         
                 if state.is_out_of_frame() or state.is_terminal():
                     break
@@ -344,10 +368,12 @@ if __name__ == '__main__':
     overall_mdp = construct_pinball_mdp()
     state_space_size = overall_mdp.init_state.state_space_size()
     random_seed = 0
-    buffer_len = 12
-    sub_reward = 0.5
-    solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed,
-                      name="GlobalDQN", eps_start=1.0, tensor_log=False)
+    buffer_len = 20
+    sub_reward = 1.
+    lr = 1e-4
+    max_number_of_options = 3
+    solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed, lr=lr,
+                      name="GlobalDQN", eps_start=1.0, tensor_log=True, use_double_dqn=True)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
@@ -364,7 +390,9 @@ if __name__ == '__main__':
         print("Training skill chaining agent from scratch with a buffer length of {} and subgoal reward {}".format(buffer_len, sub_reward))
         print("MDP InitState = ", overall_mdp.init_state)
         print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
-        chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len, seed=random_seed, subgoal_reward=sub_reward)
+        chainer = SkillChaining(overall_mdp, overall_mdp.goal_predicate, rl_agent=solver, buffer_length=buffer_len,
+                                seed=random_seed, subgoal_reward=sub_reward, max_num_options=max_number_of_options,
+                                lr_decay=False)
         episodic_scores, episodic_durations = chainer.skill_chaining()
         # chainer.save_all_dqns()
         # chainer.save_all_initiation_classifiers()

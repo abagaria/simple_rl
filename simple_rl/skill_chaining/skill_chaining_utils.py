@@ -134,7 +134,7 @@ def get_values(solver, device):
             for vx in [-1., -0.5, 0., 0.5, 1.]:
                 for vy in [-1., -0.5, 0., 0.5, 1.]:
                     s = PinballState(x, y, vx, vy)
-                    v.append(get_qvalue(solver, s.features(), device).max().item())
+                    v.append(solver.get_value(s.features()))
             values.append(np.mean(v))
     return values
 

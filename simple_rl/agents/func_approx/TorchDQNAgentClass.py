@@ -9,6 +9,7 @@ import pdb
 from copy import deepcopy
 import shutil
 import os
+import time
 
 import torch.optim as optim
 
@@ -139,13 +140,14 @@ class DQNAgent(Agent):
     """Interacts with and learns from the environment."""
 
     def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent",
-                 eps_start=1., tensor_log=False, lr=LR, use_double_dqn=False):
+                 eps_start=1., tensor_log=False, lr=LR, use_double_dqn=False, gamma=GAMMA):
         self.state_size = state_size
         self.action_size = action_size
         self.num_original_actions = num_original_actions
         self.trained_options = trained_options
         self.learning_rate = lr
         self.use_ddqn = use_double_dqn
+        self.gamma = gamma
         self.seed = random.seed(seed)
         self.tensor_log = tensor_log
 
@@ -191,7 +193,7 @@ class DQNAgent(Agent):
             group['lr'] = learning_rate
 
     def reduce_learning_rate(self):
-        new_learning_rate = self.learning_rate / 10.
+        new_learning_rate = self.learning_rate / 100.
         self.set_new_learning_rate(new_learning_rate)
 
     def initialize_optimizer_with_smaller_agent(self, smaller_agent):
@@ -259,12 +261,49 @@ class DQNAgent(Agent):
         # Not allowing epsilon-greedy to select an option as a random action
         return randomly_chosen_action
 
+    def _get_best_actions(self, states):
+        """
+        Looped and non-random version of the .act() function. The best actions are selected based on permissibility
+        given the option's initiation set and using an epsilon = 0.
+        Args:
+            states (torch.tensor): Tensor containing a batch of states
+
+        Returns:
+            best_actions (torch.tensor): Tensor with the corresponding best actions
+        """
+        best_actions = torch.zeros(states.shape[0], 1, device=device, dtype=torch.long)
+        for i, state in enumerate(states):
+            self.policy_network.eval()
+            with torch.no_grad():
+                action_values = self.policy_network(state)
+            self.policy_network.train()
+
+            # Argmax only over actions that can be implemented from the current state
+            impossible_option_idx = [idx for idx, option in enumerate(self.trained_options) if
+                                     (not option.is_init_true(state.cpu().data.numpy()))
+                                     or option.is_term_true(state.cpu().data.numpy())]
+            impossible_action_idx = map(lambda x: x + self.num_original_actions, impossible_option_idx)
+            for impossible_idx in impossible_action_idx:
+                action_values[impossible_idx] = torch.min(action_values).item() - 1.
+
+            best_action = torch.argmax(action_values)
+            best_actions[i] = best_action
+        return best_actions
+
+    def get_best_actions_batched(self, states):
+        q_values = self.get_batched_qvalues(states)
+        return torch.argmax(q_values, dim=1)
+
     def get_value(self, state):
-        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
-        self.policy_network.eval()
-        with torch.no_grad():
-            action_values = self.policy_network(state)
-        self.policy_network.train()
+        action_values = self.get_qvalues(state)
+
+        # Argmax only over actions that can be implemented from the current state
+        impossible_option_idx = [idx for idx, option in enumerate(self.trained_options) if
+                                 (not option.is_init_true(state)) or option.is_term_true(state)]
+        impossible_action_idx = map(lambda x: x + self.num_original_actions, impossible_option_idx)
+        for impossible_idx in impossible_action_idx:
+            action_values[0][impossible_idx] = torch.min(action_values).item() - 1.
+
         return np.max(action_values.cpu().data.numpy())
 
     def get_qvalue(self, state, action_idx):
@@ -275,7 +314,47 @@ class DQNAgent(Agent):
         self.policy_network.train()
         return action_values[0][action_idx]
 
-    def step(self, state, action, reward, next_state, done):
+    def get_qvalues(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+        self.policy_network.eval()
+        with torch.no_grad():
+            action_values = self.policy_network(state)
+        self.policy_network.train()
+
+        return action_values
+
+    def get_batched_qvalues(self, states):
+        """
+        Q-values corresponding to `states` for all ** permissible ** actions/options given `states`.
+        Args:
+            states (torch.tensor) of shape (64 x 4)
+
+        Returns:
+            qvalues (torch.tensor) of shape (64 x |A|)
+        """
+        self.policy_network.eval()
+        with torch.no_grad():
+            action_values = self.policy_network(states)
+        self.policy_network.train()
+
+        if len(self.trained_options) > 0:
+            # Move the states and action values to the cpu to allow numpy computations
+            states = states.cpu().data.numpy()
+            action_values = action_values.cpu().data.numpy()
+
+            positional_states = states[:, :2]
+
+            for idx, option in enumerate(self.trained_options): # type: Option
+                inits = option.initiation_classifier.predict(positional_states)
+                terms = np.zeros(inits.shape) if option.parent is None else option.parent.initiation_classifier.predict(positional_states)
+                action_values[(inits != 1) | (terms == 1), idx + self.num_original_actions] = np.min(action_values) - 1.
+
+            # Move the q-values back the GPU
+            action_values = torch.from_numpy(action_values).float().to(device)
+
+        return action_values
+
+    def step(self, state, action, reward, next_state, done, num_steps):
         """
         Interface method to perform 1 step of learning/optimization during training.
         Args:
@@ -284,9 +363,10 @@ class DQNAgent(Agent):
             reward (float)
             next_state (np.array)
             done (bool): is_terminal
+            num_steps (int): number of steps taken by the option to terminate
         """
         # Save experience in replay memory
-        self.replay_buffer.add(state, action, reward, next_state, done)
+        self.replay_buffer.add(state, action, reward, next_state, done, num_steps)
 
         # Learn every UPDATE_EVERY time steps.
         self.t_step = (self.t_step + 1) % UPDATE_EVERY
@@ -303,24 +383,35 @@ class DQNAgent(Agent):
         """
         Update value parameters using given batch of experience tuples.
         Args:
-            experiences (tuple<torch.Tensor>): tuple of (s, a, r, s', done) tuples
+            experiences (tuple<torch.Tensor>): tuple of (s, a, r, s', done, tau) tuples
             gamma (float): discount factor
         """
-        states, actions, rewards, next_states, dones = experiences
+        states, actions, rewards, next_states, dones, steps = experiences
 
         # Get max predicted Q values (for next states) from target model
         if self.use_ddqn:
 
-            self.policy_network.eval()
-            with torch.no_grad():
-                selected_actions = self.policy_network(next_states).argmax(dim=1).unsqueeze(1)
-            self.policy_network.train()
-
+            if len(self.trained_options) == 0:
+                self.policy_network.eval()
+                with torch.no_grad():
+                    selected_actions = self.policy_network(next_states).argmax(dim=1).unsqueeze(1)
+                self.policy_network.train()
+            else:
+                selected_actions = self.get_best_actions_batched(next_states).unsqueeze(1)
+                # # selected_actions_loop = self._get_best_actions(next_states)
+                # if torch.all(selected_actions == selected_actions_loop).item() != 1:
+                #     pdb.set_trace()
             Q_targets_next = self.target_network(next_states).detach().gather(1, selected_actions)
         else:
             Q_targets_next = self.target_network(next_states).detach().max(1)[0].unsqueeze(1)
+            raise NotImplementedError("I have not fixed the Q(s',a') problem for vanilla DQN yet")
+
+        # Options in SMDPs can take multiple steps to terminate, the Q-value needs to be discounted appropriately
+        discount_factors = gamma ** steps
+
         # Compute Q targets for current states
-        Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
+        # Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
+        Q_targets = rewards + (discount_factors * Q_targets_next * (1 - dones))
 
         # Get expected Q values from local model
         Q_expected = self.policy_network(states).gather(1, actions)
@@ -387,12 +478,12 @@ class ReplayBuffer:
         self.action_size = action_size
         self.memory = deque(maxlen=buffer_size)
         self.batch_size = batch_size
-        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done", "num_steps"])
         self.seed = random.seed(seed)
 
         self.positive_transitions = []
 
-    def add(self, state, action, reward, next_state, done):
+    def add(self, state, action, reward, next_state, done, num_steps):
         """
         Add new experience to memory.
         Args:
@@ -401,8 +492,9 @@ class ReplayBuffer:
             reward (float_
             next_state (np.array)
             done (bool)
+            num_steps (int): number of steps taken by the action/option to terminate
         """
-        e = self.experience(state, action, reward, next_state, done)
+        e = self.experience(state, action, reward, next_state, done, num_steps)
         self.memory.append(e)
 
     def sample(self):
@@ -418,8 +510,9 @@ class ReplayBuffer:
         rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
         next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
         dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
+        steps = torch.from_numpy(np.vstack([e.num_steps for e in experiences if e is not None])).float().to(device)
 
-        return states, actions, rewards, next_states, dones
+        return states, actions, rewards, next_states, dones, steps
 
     def __len__(self):
         """Return the current size of internal memory."""
@@ -439,7 +532,7 @@ def train(agent, mdp, episodes, steps):
             iteration_counter += 1
             action = agent.act(state.features(), agent.epsilon)
             reward, next_state = mdp.execute_agent_action(action)
-            agent.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+            agent.step(state.features(), action, reward, next_state.features(), next_state.is_terminal(), num_steps=1)
             agent.update_epsilon()
             state = next_state
             score += reward

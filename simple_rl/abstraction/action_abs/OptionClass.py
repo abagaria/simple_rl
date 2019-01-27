@@ -8,6 +8,7 @@ import numpy as np
 import pdb
 from copy import deepcopy
 import itertools
+import torch
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
@@ -43,8 +44,8 @@ class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
 				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False,
-				 num_subgoal_hits_required=3, subgoal_reward=5000., give_negative_rewards=True,
-				 max_steps=20000, seed=0, parent=None, classifier_type="bocsvm"):
+				 num_subgoal_hits_required=3, subgoal_reward=5000., give_negative_rewards=False,
+				 max_steps=20000, seed=0, parent=None, children=[], classifier_type="bocsvm"):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -65,6 +66,7 @@ class Option(object):
 			max_steps (int)
 			seed (int)
 			parent (Option)
+			children (list)
 			classifier_type (str)
 		'''
 		self.init_predicate = init_predicate
@@ -81,6 +83,7 @@ class Option(object):
 		self.max_steps = max_steps
 		self.seed = seed
 		self.parent = parent
+		self.children = children
 		self.classifier_type = classifier_type
 
 		random.seed(seed)
@@ -215,6 +218,16 @@ class Option(object):
 		experiences = [Experience(*exp) for exp in experience_queue]
 		self.experience_buffer.append(experiences)
 
+	def are_states_in_sibling_initiation(self, states_queue):
+		states = list(states_queue)
+		siblings = self.parent.children
+		for sibling in siblings: # type: Option
+			if sibling != self:
+				for state in states:
+					if sibling.is_init_true(state):
+						return True
+		return False
+
 	@staticmethod
 	def _construct_feature_matrix(examples_matrix):
 		states = list(itertools.chain.from_iterable(examples_matrix))
@@ -321,6 +334,8 @@ class Option(object):
 		return overlap_condition and relation_condition
 
 	def update_option_solver(self, s, a, r, s_prime):
+		assert self.overall_mdp.is_primitive_action(a), "Option solver should be over primitive actions: {}".format(a)
+
 		successful = self.is_init_true(s) and self.is_term_true(s_prime) and not self.is_term_true(s)
 		failed = self.is_init_true(s) and not self.is_init_true(s_prime) and not self.is_term_true(s_prime)
 
@@ -332,16 +347,16 @@ class Option(object):
 		if successful:
 			assert self.is_term_true(s_prime), "Thought {} was a successful transition".format(s_prime)
 			self.num_successful_updates += 1
-			self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), True)
+			self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), True, num_steps=1)
 
 		elif failed and self.give_negatives_subgoal_rewards:
 			assert not self.is_term_true(s_prime), "Thought {} was supposed to be failure state".format(s_prime)
 			self.num_unsuccessful_updates += 1
-			self.solver.step(s.features(), a, r - self.subgoal_reward, s_prime.features(), True)
+			self.solver.step(s.features(), a, r - (0.5*self.subgoal_reward), s_prime.features(), True, num_steps=1)
 
 		# In the middle of executing the option
 		elif midst:
-			self.solver.step(s.features(), a, r, s_prime.features(), False)
+			self.solver.step(s.features(), a, r, s_prime.features(), False, num_steps=1)
 
 		self.num_option_updates += 1
 		if self.solver.tensor_log:
@@ -373,6 +388,13 @@ class Option(object):
 		# 	state, action, reward, next_state = experience.serialize()
 		# 	self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
 
+	def bottom_right_states(self, states_buffer):
+		states = list(states_buffer)
+		for state in states:
+			if state.x < 0.4 or state.y < 0.5:
+				return False
+		return True
+
 	def train(self, experience_buffer, state_buffer):
 		"""
 		Called every time the agent hits the current option's termination set.
@@ -383,14 +405,15 @@ class Option(object):
 		Returns:
 			trained (bool): whether or not we actually trained this option
 		"""
-		self.num_goal_hits += 1
-
-		# Augment the most recent experience with the subgoal reward
-		# final_transition = experience_buffer[-1]
-		# experience_buffer[-1] = (final_transition[0], final_transition[1],
-		# 						 final_transition[2] + self.subgoal_reward, final_transition[3])
-		self.add_initiation_experience(state_buffer)
-		self.add_experience_buffer(experience_buffer)
+		if "tree" in self.name:
+			if not self.are_states_in_sibling_initiation(state_buffer) and self.bottom_right_states(state_buffer):
+				self.add_initiation_experience(state_buffer)
+				self.add_experience_buffer(experience_buffer)
+				self.num_goal_hits += 1
+		else:
+			self.add_initiation_experience(state_buffer)
+			self.add_experience_buffer(experience_buffer)
+			self.num_goal_hits += 1
 
 		if self.num_goal_hits >= self.num_subgoal_hits_required:
 			self.train_initiation_classifier()
@@ -426,7 +449,8 @@ class Option(object):
 								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length,
 								  pretrained=pretrained, num_subgoal_hits_required=num_subgoal_hits,
 								  subgoal_reward=subgoal_reward, give_negative_rewards=self.give_negatives_subgoal_rewards,
-								  seed=self.seed, parent=self, classifier_type="ocsvm")
+								  seed=self.seed, parent=self, children=[], classifier_type="ocsvm")
+		self.children.append(untrained_option)
 		return untrained_option
 
 	def act_until_terminal(self, cur_state, transition_func):
@@ -465,6 +489,17 @@ class Option(object):
 		return cur_state, total_reward
 
 	def execute_option_in_mdp(self, mdp, step_number):
+		"""
+		Option main control loop.
+
+		Args:
+		    mdp (MDP): environment where actions are being taken
+		    step_number (int): how many steps have already elapsed in the outer control loop.
+
+		Returns:
+			option_transitions (list): list of (s, a, r, s') tuples
+			discounted_reward (float): cumulative discounted reward obtained by executing the option
+		"""
 		state = mdp.cur_state
 
 		if self.is_init_true(state):
@@ -478,7 +513,9 @@ class Option(object):
 			# ---------------------------------------------------------------------------------
 
 			option_transitions = []
+			discounted_reward = 0.
 			self.num_executions += 1
+			num_steps = 0
 
 			while self.is_init_true(state) and not self.is_term_true(state) and \
 					not state.is_terminal() and step_number < self.max_steps:
@@ -491,22 +528,28 @@ class Option(object):
 					self.update_option_solver(state, action, reward, next_state)
 
 				# Note: We are not using the option augmented subgoal reward while making off-policy updates to global DQN
-				self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
+				assert mdp.is_primitive_action(action), "Option solver should be over primitive actions: {}".format(action)
+				self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal(), num_steps=1)
 
 				option_transitions.append((state, action, reward, next_state))
+				discounted_reward += ((self.solver.gamma ** num_steps) * reward)
 				state = next_state
 
 				# Epsilon decay
 				self.solver.update_epsilon()
 				self.global_solver.update_epsilon()
+
+				# step_number is to check if we exhaust the episodic step budget
+				# num_steps is to appropriately discount the rewards during option execution
 				step_number += 1
+				num_steps += 1
 
 			self.ending_points.append(state)
 
 			if self.solver.tensor_log:
 				self.solver.writer.add_scalar("ExecutionLength", len(option_transitions), self.num_executions)
 
-			return option_transitions
+			return option_transitions, discounted_reward
 
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 
