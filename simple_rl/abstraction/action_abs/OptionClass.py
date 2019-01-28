@@ -44,7 +44,7 @@ class Option(object):
 
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
 				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False,
-				 num_subgoal_hits_required=3, subgoal_reward=5000., give_negative_rewards=False,
+				 num_subgoal_hits_required=3, subgoal_reward=5000., give_negative_rewards=True,
 				 max_steps=20000, seed=0, parent=None, children=[], classifier_type="bocsvm"):
 		'''
 		Args:
@@ -85,6 +85,8 @@ class Option(object):
 		self.parent = parent
 		self.children = children
 		self.classifier_type = classifier_type
+
+		self.option_idx = 0 if self.parent is None else self.parent.option_idx + 1
 
 		random.seed(seed)
 
@@ -335,6 +337,7 @@ class Option(object):
 
 	def update_option_solver(self, s, a, r, s_prime):
 		assert self.overall_mdp.is_primitive_action(a), "Option solver should be over primitive actions: {}".format(a)
+		if self.pretrained: return
 
 		successful = self.is_init_true(s) and self.is_term_true(s_prime) and not self.is_term_true(s)
 		failed = self.is_init_true(s) and not self.is_init_true(s_prime) and not self.is_term_true(s_prime)
@@ -518,11 +521,11 @@ class Option(object):
 			num_steps = 0
 
 			while self.is_init_true(state) and not self.is_term_true(state) and \
-					not state.is_terminal() and step_number < self.max_steps:
+					not state.is_terminal() and step_number < self.max_steps and num_steps < (10 * self.buffer_length):
 
 				epsilon = self.solver.epsilon if not self.pretrained else 0.
 				action = self.solver.act(state.features(), epsilon)
-				reward, next_state = mdp.execute_agent_action(action)
+				reward, next_state = mdp.execute_agent_action(action, option_idx=self.option_idx)
 
 				if not self.pretrained:
 					self.update_option_solver(state, action, reward, next_state)

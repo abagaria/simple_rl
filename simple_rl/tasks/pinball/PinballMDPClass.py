@@ -29,19 +29,21 @@ class PinballMDP(MDP):
 
         MDP.__init__(self, actions, self._transition_func, self._reward_func, init_state=PinballState(*init_state))
 
-    def _reward_func(self, state, action):
+    def _reward_func(self, state, action, option_idx=None):
         """
         Args:
             state (PinballState)
             action (int): number between 0 and 4 inclusive
+            option_idx (int): was the action selected based on an option policy
 
         Returns:
             next_state (PinballState)
         """
+        assert self.is_primitive_action(action), "Can only implement primitive actions to the MDP"
         reward, obs, done, possible_actions = self.domain.step(action)
 
         if self.render:
-            self.domain.showDomain(action)
+            self.domain.showDomain(action, option_idx)
 
         self.next_state = PinballState(*tuple(obs), is_terminal=done)
 
@@ -60,6 +62,25 @@ class PinballMDP(MDP):
 
     def _transition_func(self, state, action):
         return self.next_state
+
+    def execute_agent_action(self, action, option_idx=None):
+        """
+        Args:
+            action (str)
+            option_idx (int): given if action came from an option policy
+
+        Returns:
+            (tuple: <float,State>): reward, State
+
+        Summary:
+            Core method of all of simple_rl. Facilitates interaction
+            between the MDP and an agent.
+        """
+        reward = self.reward_func(self.cur_state, action, option_idx)
+        next_state = self.transition_func(self.cur_state, action)
+        self.cur_state = next_state
+
+        return reward, next_state
 
     def reset(self):
         init_observation = self.domain.s0()
