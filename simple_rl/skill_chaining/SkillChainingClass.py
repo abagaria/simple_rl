@@ -368,7 +368,7 @@ class SkillChaining(object):
                 option_idx = action - len(self.mdp.actions)
                 selected_option = self.trained_options[option_idx]  # type: Option
                 if verbose: print("Taking {}".format(selected_option))
-                option_reward, next_state = selected_option.trained_option_execution(self.mdp)
+                option_reward, next_state = selected_option.trained_option_execution(self.mdp, num_steps, max_num_steps)
                 overall_reward += option_reward
 
             state = next_state

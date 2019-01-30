@@ -563,11 +563,11 @@ class Option(object):
 
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 
-	def trained_option_execution(self, mdp):
+	def trained_option_execution(self, mdp, outer_step_counter, episodic_budget):
 		state = mdp.cur_state
-		score, step_number = 0., 0
+		score, step_number = 0., deepcopy(outer_step_counter)
 		while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal()\
-				and not state.is_out_of_frame() and step_number < 5000:
+				and not state.is_out_of_frame() and step_number < episodic_budget:
 			action = self.solver.act(state.features(), train_mode=False)
 			reward, state = mdp.execute_agent_action(action, option_idx=self.option_idx)
 			score += reward
@@ -585,7 +585,7 @@ class Option(object):
 			mdp.execute_agent_action(4) # noop
 			time.sleep(0.3)
 			if self.is_init_true(state) and not self.is_term_true(state):
-				score, next_state = self.trained_option_execution(mdp)
+				score, next_state = self.trained_option_execution(mdp, 0, 2000)
 				print("Success" if self.is_term_true(next_state) else "Failure")
 			elif not self.is_init_true(state):
 				print("{} not in {}'s initiation set".format(state, self.name))
