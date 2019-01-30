@@ -328,8 +328,8 @@ class SkillChainingExperiments(object):
         buffer_len = 20
         sub_reward = 1.
         max_num_options = 3
-        negative_reward_ratios = [0., 0.25, 0.5, 0.75, 1.0]
-        learning_rate = 5e-4  # 0.1 of the one we usually use
+        negative_reward_ratios = [0., 0.5, 0.75, 1.0]
+        learning_rate = 1e-4  # 0.1 of the one we usually use
         random_seeds = [0, 20, 123, 4351] # Because I have only tested the init sets for seed=0
         scores = []
         episodes = []
@@ -363,7 +363,7 @@ class SkillChainingExperiments(object):
                     list_scores += episodic_scores
                 scores += list_scores
                 episodes += episode_numbers
-                algorithms += ["negativeSubgoalRewardRatio={}".format(negative_reward_ratio)] * len(episode_numbers)
+                algorithms += ["negativeRatio={}".format(negative_reward_ratio)] * len(episode_numbers)
         scores_dataframe = pd.DataFrame(np.array(scores), columns=["reward"])
         scores_dataframe["episode"] = np.array(episodes)
 
@@ -372,7 +372,7 @@ class SkillChainingExperiments(object):
         sns.lineplot(x="episode", y="reward", hue="method", data=scores_dataframe, estimator=np.median)
         plt.title(experiment_name)
         plt.savefig("{}.png".format(experiment_name))
-        plt.show()
+        # plt.show()
 
         self.data_frame = scores_dataframe
         scores_dataframe.to_pickle("{}.pkl".format(experiment_name))
@@ -388,5 +388,5 @@ if __name__ == '__main__':
     # scdf = experiments.run_skill_chaining_with_different_seeds()
     # lrdf = experiments.ddqn_hyper_params()
     # dddf = experiments.dqn_vs_ddqn()
-    scdf = experiments.tune_skill_chaining_hyper_params()
+    scdf = experiments.tune_skill_chaining_hyper_params(experiment_name="sc_negative_sub_reward_ratio_tuning_huber")
     # scdf = experiments.run_sc_and_pretrained()
