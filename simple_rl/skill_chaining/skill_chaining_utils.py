@@ -120,6 +120,34 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     plt.savefig("{}_one_class_svm_{}.png".format(option.name, time.time()))
     plt.close()
 
+def visualize_option_replay_buffer(option):
+    goal_transitions = list(filter(lambda e: e.reward > 0, option.solver.replay_buffer.memory))
+    cliff_transitions = list(filter(lambda e: e.reward < 0 and e.done == 1, option.solver.replay_buffer.memory))
+    non_terminals = list(filter(lambda e: e.done == 0, option.solver.replay_buffer.memory))
+
+    goal_x = [e.next_state[0] for e in goal_transitions]
+    goal_y = [e.next_state[1] for e in goal_transitions]
+    cliff_x = [e.next_state[0] for e in cliff_transitions]
+    cliff_y = [e.next_state[1] for e in cliff_transitions]
+    non_term_x = [e.next_state[0] for e in non_terminals]
+    non_term_y = [e.next_state[1] for e in non_terminals]
+
+    background_image = imread("pinball_domain.png")
+
+    plt.figure()
+    plt.scatter(goal_x, goal_y, alpha=0.33, label="goal")
+    plt.scatter(cliff_x, cliff_y, alpha=0.33, label="cliff")
+    plt.scatter(non_term_x, non_term_y, alpha=0.2, label="non_terminal")
+    plt.imshow(background_image, zorder=0, alpha=0.5, extent=[0., 1., 1., 0.])
+
+    plt.legend()
+    plt.xlim((0., 1.))
+    plt.ylim((0., 1.))
+    plt.gca().invert_yaxis()
+    plt.savefig("{}_replay_buffer_analysis.png".format(option.name))
+    plt.close()
+
+
 def get_qvalue(agent, state, device):
     state = torch.from_numpy(state).float().unsqueeze(0).to(device)
     with torch.no_grad():
@@ -184,7 +212,7 @@ def visualize_option_policy(option):
     experience_buffer = option.experience_buffer.reshape(-1)
     x_positions = [experience.state.x for experience in experience_buffer]
     y_positions = [experience.state.y for experience in experience_buffer]
-    actions = [option.solver.act(experience.state.features()) for experience in experience_buffer]
+    actions = [option.solver.act(experience.state.features(), train_mode=False) for experience in experience_buffer]
     color_map = [colors[action] for action in actions]
     plt.scatter(x_positions, y_positions, c=color_map, alpha=0.7, edgecolors='none')
     plt.xlabel("x"); plt.ylabel("y"); plt.title("{} policy \nred: noop, green: left, blue: right, yellow: main".format(option.name))

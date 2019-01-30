@@ -45,7 +45,8 @@ class Option(object):
 	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
 				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False,
 				 num_subgoal_hits_required=3, subgoal_reward=5000., give_negative_rewards=True,
-				 max_steps=20000, seed=0, parent=None, children=[], classifier_type="bocsvm"):
+				 max_steps=20000, seed=0, parent=None, children=[], classifier_type="bocsvm",
+				 enable_timeout=False, negative_reward_ratio=0.5):
 		'''
 		Args:
 			init_predicate (S --> {0,1})
@@ -68,6 +69,8 @@ class Option(object):
 			parent (Option)
 			children (list)
 			classifier_type (str)
+			enable_timeout (bool)
+			negative_reward_ratio (float)
 		'''
 		self.init_predicate = init_predicate
 		self.term_predicate = term_predicate
@@ -85,6 +88,8 @@ class Option(object):
 		self.parent = parent
 		self.children = children
 		self.classifier_type = classifier_type
+		self.enable_timeout = enable_timeout
+		self.negative_reward_ratio = negative_reward_ratio
 
 		self.option_idx = 0 if self.parent is None else self.parent.option_idx + 1
 
@@ -355,7 +360,8 @@ class Option(object):
 		elif failed and self.give_negatives_subgoal_rewards:
 			assert not self.is_term_true(s_prime), "Thought {} was supposed to be failure state".format(s_prime)
 			self.num_unsuccessful_updates += 1
-			self.solver.step(s.features(), a, r - (0.5*self.subgoal_reward), s_prime.features(), True, num_steps=1)
+			negative_reward = self.negative_reward_ratio * self.subgoal_reward
+			self.solver.step(s.features(), a, r - negative_reward, s_prime.features(), True, num_steps=1)
 
 		# In the middle of executing the option
 		elif midst:
@@ -452,7 +458,8 @@ class Option(object):
 								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length,
 								  pretrained=pretrained, num_subgoal_hits_required=num_subgoal_hits,
 								  subgoal_reward=subgoal_reward, give_negative_rewards=self.give_negatives_subgoal_rewards,
-								  seed=self.seed, parent=self, children=[], classifier_type="ocsvm")
+								  seed=self.seed, parent=self, children=[], classifier_type="ocsvm",
+								  negative_reward_ratio=self.negative_reward_ratio, enable_timeout=self.enable_timeout)
 		self.children.append(untrained_option)
 		return untrained_option
 
@@ -519,12 +526,12 @@ class Option(object):
 			discounted_reward = 0.
 			self.num_executions += 1
 			num_steps = 0
+			timeout_condition = (num_steps < (25 * self.buffer_length)) if self.enable_timeout else True
 
 			while self.is_init_true(state) and not self.is_term_true(state) and \
-					not state.is_terminal() and step_number < self.max_steps and num_steps < (10 * self.buffer_length):
+					not state.is_terminal() and step_number < self.max_steps and timeout_condition:
 
-				epsilon = self.solver.epsilon if not self.pretrained else 0.
-				action = self.solver.act(state.features(), epsilon)
+				action = self.solver.act(state.features(), train_mode=True)
 				reward, next_state = mdp.execute_agent_action(action, option_idx=self.option_idx)
 
 				if not self.pretrained:
@@ -561,8 +568,8 @@ class Option(object):
 		score, step_number = 0., 0
 		while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal()\
 				and not state.is_out_of_frame() and step_number < 5000:
-			action = self.solver.act(state.features(), eps=0.)
-			reward, state = mdp.execute_agent_action(action)
+			action = self.solver.act(state.features(), train_mode=False)
+			reward, state = mdp.execute_agent_action(action, option_idx=self.option_idx)
 			score += reward
 			step_number += 1
 		return score, state
