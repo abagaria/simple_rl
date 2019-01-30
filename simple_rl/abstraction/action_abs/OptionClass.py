@@ -572,7 +572,7 @@ class Option(object):
 			reward, state = mdp.execute_agent_action(action, option_idx=self.option_idx)
 			score += reward
 			step_number += 1
-		return score, state
+		return score, state, step_number
 
 	def visualize_learned_policy(self, mdp, num_times=5):
 		for _ in range(num_times):
@@ -585,7 +585,7 @@ class Option(object):
 			mdp.execute_agent_action(4) # noop
 			time.sleep(0.3)
 			if self.is_init_true(state) and not self.is_term_true(state):
-				score, next_state = self.trained_option_execution(mdp, 0, 2000)
+				score, next_state, option_num_steps = self.trained_option_execution(mdp, 0, 2000)
 				print("Success" if self.is_term_true(next_state) else "Failure")
 			elif not self.is_init_true(state):
 				print("{} not in {}'s initiation set".format(state, self.name))
