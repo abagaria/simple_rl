@@ -110,7 +110,7 @@ class Option(object):
 		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), len(overall_mdp.actions),
 							   trained_options=[], seed=self.seed, name=name, use_double_dqn=global_solver.use_ddqn,
 							   lr=global_solver.learning_rate, tensor_log=global_solver.tensor_log,
-							   loss_function=global_solver.loss_function)
+							   loss_function=global_solver.loss_function, gradient_clip=global_solver.gradient_clip)
 		self.global_solver = global_solver
 
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)

@@ -140,7 +140,8 @@ class DQNAgent(Agent):
     """Interacts with and learns from the environment."""
 
     def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent",
-                 eps_start=1., tensor_log=False, lr=LR, use_double_dqn=False, gamma=GAMMA, loss_function="huber"):
+                 eps_start=1., tensor_log=False, lr=LR, use_double_dqn=False, gamma=GAMMA, loss_function="huber",
+                 gradient_clip=None):
         self.state_size = state_size
         self.action_size = action_size
         self.num_original_actions = num_original_actions
@@ -149,6 +150,7 @@ class DQNAgent(Agent):
         self.use_ddqn = use_double_dqn
         self.gamma = gamma
         self.loss_function = loss_function
+        self.gradient_clip = gradient_clip
         self.seed = random.seed(seed)
         self.tensor_log = tensor_log
 
@@ -431,8 +433,9 @@ class DQNAgent(Agent):
         loss.backward()
 
         # # Gradient clipping: tried but the results looked worse -- needs more testing
-        # for param in self.policy_network.parameters():
-        #     param.grad.data.clamp_(-1, 1)
+        if self.gradient_clip is not None:
+            for param in self.policy_network.parameters():
+                param.grad.data.clamp_(-self.gradient_clip, self.gradient_clip)
 
         self.optimizer.step()
 

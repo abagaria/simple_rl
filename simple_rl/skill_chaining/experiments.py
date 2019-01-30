@@ -22,6 +22,7 @@ class SkillChainingExperiments(object):
         self.random_seed = random_seed
 
         self.data_frame = None
+        self.val_data_frame = None
 
     def compare_agents(self):
 
@@ -328,35 +329,32 @@ class SkillChainingExperiments(object):
         buffer_len = 20
         sub_reward = 1.
         max_num_options = 3
-        loss_types = ["huber", "mse"]
+        reward_scale = 1. # rewards in [-1., 10,000.]
+        grad_clip_vals = [5., 10., 100., 1000.]
         learning_rate = 1e-4  # 0.1 of the one we usually use
         random_seeds = [0, 20, 123, 4351] # Because I have only tested the init sets for seed=0
-        scores = []
+        training_scores = []
+        validation_scores = []
         episodes = []
         algorithms = []
 
-        for loss_function in loss_types:
+        for grad_clip in grad_clip_vals:
             for random_seed in random_seeds:
                 print()
                 print("=" * 80)
-                print("Training skill chaining agent (seed={}, criterion={})".format(random_seed, loss_function))
+                print("Training skill chaining agent (seed={}, clip_val={})".format(random_seed, grad_clip))
                 print("=" * 80)
-                list_scores, episode_numbers = [], []
+                list_scores, validation_list_scores, episode_numbers = [], [], []
                 for i in range(self.num_instances):
                     print("\nInstance {} of {}".format(i + 1, self.num_instances))
-
-                    if loss_function == "huber":
-                        reward_scale = 1000.
-                    elif loss_function == "mse":
-                        reward_scale = 1.
 
                     self.mdp = PinballMDP(noise=0., episode_length=20000, reward_scale=reward_scale, render=False)
                     self.state_size = self.mdp.init_state.state_space_size()
                     self.num_actions = len(self.mdp.actions)
 
                     solver = DQNAgent(self.state_size, self.num_actions, self.num_actions, [], seed=random_seed,
-                                      name="GlobalDDQN", tensor_log=False, use_double_dqn=True, lr=learning_rate,
-                                      loss_function=loss_function)
+                                      name="GlobalDDQN_Clip_{}".format(grad_clip), tensor_log=False, use_double_dqn=True,
+                                      lr=learning_rate, loss_function="mse", gradient_clip=grad_clip)
                     skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, rl_agent=solver,
                                                          subgoal_reward=sub_reward, buffer_length=buffer_len,
                                                          max_num_options=max_num_options, seed=random_seed, lr_decay=False,
@@ -367,21 +365,37 @@ class SkillChainingExperiments(object):
 
                     episode_numbers += list(range(self.num_episodes))
                     list_scores += episodic_scores
-                scores += list_scores
+                    validation_list_scores += skill_chaining_agent.validation_scores
+
+                training_scores += list_scores
+                validation_scores += validation_list_scores
                 episodes += episode_numbers
-                algorithms += ["criterion={}".format(loss_function)] * len(episode_numbers)
-        scores_dataframe = pd.DataFrame(np.array(scores), columns=["reward"])
+                algorithms += ["gradClip={}".format(grad_clip)] * len(episode_numbers)
+
+        scores_dataframe = pd.DataFrame(np.array(training_scores), columns=["reward"])
+        val_scores_dataframe = pd.DataFrame(np.array(validation_scores), columns=["reward"])
         scores_dataframe["episode"] = np.array(episodes)
+        val_scores_dataframe["episode"] = np.array(episodes)
 
         plt.figure()
         scores_dataframe["method"] = np.array(algorithms)
         sns.lineplot(x="episode", y="reward", hue="method", data=scores_dataframe, estimator=np.median)
         plt.title(experiment_name)
-        plt.savefig("{}.png".format(experiment_name))
+        plt.savefig("{}_training.png".format(experiment_name))
         # plt.show()
 
         self.data_frame = scores_dataframe
-        scores_dataframe.to_pickle("{}.pkl".format(experiment_name))
+        scores_dataframe.to_pickle("{}_training.pkl".format(experiment_name))
+
+        plt.figure()
+        val_scores_dataframe["method"] = np.array(algorithms)
+        sns.lineplot(x="episode", y="reward", hue="method", data=val_scores_dataframe, estimator=np.median)
+        plt.title(experiment_name)
+        plt.savefig("{}_validation.png".format(experiment_name))
+        # plt.show()
+
+        self.val_data_frame = val_scores_dataframe
+        val_scores_dataframe.to_pickle("{}_validation.pkl".format(experiment_name))
 
         return scores_dataframe
 
@@ -394,5 +408,5 @@ if __name__ == '__main__':
     # scdf = experiments.run_skill_chaining_with_different_seeds()
     # lrdf = experiments.ddqn_hyper_params()
     # dddf = experiments.dqn_vs_ddqn()
-    scdf = experiments.tune_skill_chaining_hyper_params(experiment_name="sc_mse_vs_huber_negative_ratio_0_5")
+    scdf = experiments.tune_skill_chaining_hyper_params(experiment_name="sc_mse_grad_clipping_comparisons_sgr_0_5")
     # scdf = experiments.run_sc_and_pretrained()
