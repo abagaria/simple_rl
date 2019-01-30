@@ -225,7 +225,6 @@ class SkillChaining(object):
             score = 0.
             step_number = 0
             uo_episode_terminated = False
-            tree_flag = False
             state = deepcopy(self.mdp.init_state)
             experience_buffer = deque([], maxlen=self.buffer_length)
             state_buffer = deque([], maxlen=self.buffer_length)
@@ -256,26 +255,6 @@ class SkillChaining(object):
                         if not self.global_solver.tensor_log: render_value_function(self.global_solver, torch.device("cuda"), episode=episode+1000)
                         new_untrained_option = untrained_option.get_child_option(len(self.trained_options))
                         untrained_option = new_untrained_option
-
-                # if "tree" in untrained_option.name and untrained_option.is_term_true(state) and not tree_flag \
-                #         and len(experience_buffer) == self.buffer_length:
-                #     num_training_trajectories = len(untrained_option.initiation_data)
-                #     if untrained_option.train(experience_buffer, state_buffer):
-                #         if not self.global_solver.tensor_log: plot_one_class_initiation_classifier(untrained_option)
-                #         self._augment_agent_with_new_option(untrained_option)
-                #         untrained_option = untrained_option.get_child_option(len(self.trained_options))
-                #         tree_flag = True
-                #
-                #     if len(untrained_option.initiation_data) > num_training_trajectories:
-                #         tree_flag = True
-                #
-                # branching_option_idx = 3
-                # if not self.should_create_more_options() and len(self.trained_options) > branching_option_idx:
-                #     if len(self.trained_options[branching_option_idx].children) < 2:
-                #         new_untrained_option = self.trained_options[branching_option_idx].get_child_option(len(self.trained_options))
-                #         new_untrained_option.name += "_tree"
-                #         untrained_option = new_untrained_option
-
                         
                 if state.is_out_of_frame() or state.is_terminal():
                     break
