@@ -14,7 +14,7 @@ import numpy as np
 class PinballMDP(MDP):
     """ Class for pinball domain. """
 
-    def __init__(self, noise=0., episode_length=1000, reward_scale=10000., goal_predicate=None, render=False):
+    def __init__(self, noise=0., episode_length=1000, reward_scale=1000., goal_predicate=None, render=False):
         self.domain = Pinball(noise=noise, episodeCap=episode_length) #, configuration="/home/akhil/git-repos/rlpy/rlpy/Domains/PinballConfigs/pinball_hard_single.cfg")
         self.render = render
         self.reward_scale = reward_scale
@@ -57,7 +57,8 @@ class PinballMDP(MDP):
         # goal_position = np.array(self.domain.environment.target_pos)
         #
         # return -np.linalg.norm(current_position - goal_position)
-        return np.clip(reward, -0.001, 10.)
+        negatively_clamped_reward = -1. if reward < 0 else reward
+        return negatively_clamped_reward / self.reward_scale
 
 
     def _transition_func(self, state, action):

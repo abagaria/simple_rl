@@ -328,33 +328,39 @@ class SkillChainingExperiments(object):
         buffer_len = 20
         sub_reward = 1.
         max_num_options = 3
-        negative_reward_ratios = [0., 0.5, 0.75, 1.0]
+        loss_types = ["huber", "mse"]
         learning_rate = 1e-4  # 0.1 of the one we usually use
         random_seeds = [0, 20, 123, 4351] # Because I have only tested the init sets for seed=0
         scores = []
         episodes = []
         algorithms = []
 
-        for negative_reward_ratio in negative_reward_ratios:
+        for loss_function in loss_types:
             for random_seed in random_seeds:
                 print()
                 print("=" * 80)
-                print("Training skill chaining agent (seed={}, neg_subgoal_reward_r={})".format(random_seed, negative_reward_ratio))
+                print("Training skill chaining agent (seed={}, criterion={})".format(random_seed, loss_function))
                 print("=" * 80)
                 list_scores, episode_numbers = [], []
                 for i in range(self.num_instances):
                     print("\nInstance {} of {}".format(i + 1, self.num_instances))
 
-                    self.mdp = PinballMDP(noise=0., episode_length=20000, render=False)
+                    if loss_function == "huber":
+                        reward_scale = 1000.
+                    elif loss_function == "mse":
+                        reward_scale = 1.
+
+                    self.mdp = PinballMDP(noise=0., episode_length=20000, reward_scale=reward_scale, render=False)
                     self.state_size = self.mdp.init_state.state_space_size()
                     self.num_actions = len(self.mdp.actions)
 
                     solver = DQNAgent(self.state_size, self.num_actions, self.num_actions, [], seed=random_seed,
-                                      name="GlobalDDQN", tensor_log=False, use_double_dqn=True, lr=learning_rate)
+                                      name="GlobalDDQN", tensor_log=False, use_double_dqn=True, lr=learning_rate,
+                                      loss_function=loss_function)
                     skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, rl_agent=solver,
                                                          subgoal_reward=sub_reward, buffer_length=buffer_len,
                                                          max_num_options=max_num_options, seed=random_seed, lr_decay=False,
-                                                         option_subgoal_reward_ratio=negative_reward_ratio)
+                                                         option_subgoal_reward_ratio=0.5)
                     episodic_scores, episodic_durations = skill_chaining_agent.skill_chaining(
                         num_episodes=self.num_episodes, num_steps=20000)
                     skill_chaining_agent.save_all_scores(False, episodic_scores, episodic_durations)
@@ -363,7 +369,7 @@ class SkillChainingExperiments(object):
                     list_scores += episodic_scores
                 scores += list_scores
                 episodes += episode_numbers
-                algorithms += ["negativeRatio={}".format(negative_reward_ratio)] * len(episode_numbers)
+                algorithms += ["criterion={}".format(loss_function)] * len(episode_numbers)
         scores_dataframe = pd.DataFrame(np.array(scores), columns=["reward"])
         scores_dataframe["episode"] = np.array(episodes)
 
@@ -388,5 +394,5 @@ if __name__ == '__main__':
     # scdf = experiments.run_skill_chaining_with_different_seeds()
     # lrdf = experiments.ddqn_hyper_params()
     # dddf = experiments.dqn_vs_ddqn()
-    scdf = experiments.tune_skill_chaining_hyper_params(experiment_name="sc_negative_sub_reward_ratio_tuning_huber")
+    scdf = experiments.tune_skill_chaining_hyper_params(experiment_name="sc_mse_vs_huber_negative_ratio_0_5")
     # scdf = experiments.run_sc_and_pretrained()
