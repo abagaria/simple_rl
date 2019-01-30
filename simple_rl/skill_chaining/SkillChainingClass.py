@@ -295,7 +295,7 @@ class SkillChaining(object):
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}\tDuration: {:.2f} steps'.format(episode, np.mean(last_10_scores), np.mean(last_10_durations)))
         if episode > 0 and episode % 5 == 0:
-            eval_score = self.trained_forward_pass(verbose=False)
+            eval_score = self.trained_forward_pass(verbose=False, render=False)
             self.validation_scores.append(eval_score)
             print("\rEpisode {}\tValidation Score: {:.2f}".format(episode, eval_score))
 
@@ -342,7 +342,7 @@ class SkillChaining(object):
             # visualize_replay_buffer(option)
             # visualize_global_dqn_execution_points(self.global_execution_states)
 
-    def trained_forward_pass(self, verbose=True, max_num_steps=5000):
+    def trained_forward_pass(self, verbose=True, max_num_steps=5000, render=True):
         """
         Called when skill chaining has finished training: execute options when possible and then atomic actions
         Returns:
@@ -353,7 +353,7 @@ class SkillChaining(object):
         self.mdp.reset()
         state = deepcopy(self.mdp.init_state)
         overall_reward = 0.
-        self.mdp.render = True
+        self.mdp.render = render
         num_steps = 0
 
         while not state.is_terminal() and num_steps < max_num_steps:
