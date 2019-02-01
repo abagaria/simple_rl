@@ -62,6 +62,7 @@ class SkillChaining(object):
             self.trained_options = pretrained_options
 
         self.validation_scores = []
+        self.validation_episodes = []
 
         # Debug variables
         self.global_execution_states = []
@@ -297,6 +298,7 @@ class SkillChaining(object):
         if episode > 0 and episode % 5 == 0:
             eval_score = self.trained_forward_pass(verbose=False, render=False)
             self.validation_scores.append(eval_score)
+            self.validation_episodes.append(episode)
             print("\rEpisode {}\tValidation Score: {:.2f}".format(episode, eval_score))
 
         if not self.global_solver.tensor_log and episode % 5 == 0:

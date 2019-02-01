@@ -336,7 +336,9 @@ class SkillChainingExperiments(object):
         training_scores = []
         validation_scores = []
         episodes = []
+        val_episodes = []
         algorithms = []
+        val_algorithms = []
 
         for grad_clip in grad_clip_vals:
             for random_seed in random_seeds:
@@ -344,7 +346,7 @@ class SkillChainingExperiments(object):
                 print("=" * 80)
                 print("Training skill chaining agent (seed={}, clip_val={})".format(random_seed, grad_clip))
                 print("=" * 80)
-                list_scores, validation_list_scores, episode_numbers = [], [], []
+                list_scores, validation_list_scores, episode_numbers, validation_episodes = [], [], [], []
                 for i in range(self.num_instances):
                     print("\nInstance {} of {}".format(i + 1, self.num_instances))
 
@@ -364,18 +366,23 @@ class SkillChainingExperiments(object):
                     skill_chaining_agent.save_all_scores(False, episodic_scores, episodic_durations)
 
                     episode_numbers += list(range(self.num_episodes))
+                    validation_episodes += skill_chaining_agent.validation_episodes
                     list_scores += episodic_scores
                     validation_list_scores += skill_chaining_agent.validation_scores
 
                 training_scores += list_scores
                 validation_scores += validation_list_scores
                 episodes += episode_numbers
+                val_episodes += validation_episodes
+
                 algorithms += ["gradClip={}".format(grad_clip)] * len(episode_numbers)
+                val_algorithms += ["gradClip={}".format(grad_clip)] * len(validation_episodes)
+
 
         scores_dataframe = pd.DataFrame(np.array(training_scores), columns=["reward"])
         val_scores_dataframe = pd.DataFrame(np.array(validation_scores), columns=["reward"])
         scores_dataframe["episode"] = np.array(episodes)
-        val_scores_dataframe["episode"] = np.array(episodes)
+        val_scores_dataframe["episode"] = np.array(val_episodes)
 
         plt.figure()
         scores_dataframe["method"] = np.array(algorithms)
@@ -388,7 +395,7 @@ class SkillChainingExperiments(object):
         scores_dataframe.to_pickle("{}_training.pkl".format(experiment_name))
 
         plt.figure()
-        val_scores_dataframe["method"] = np.array(algorithms)
+        val_scores_dataframe["method"] = np.array(val_algorithms)
         sns.lineplot(x="episode", y="reward", hue="method", data=val_scores_dataframe, estimator=np.median)
         plt.title(experiment_name)
         plt.savefig("{}_validation.png".format(experiment_name))
