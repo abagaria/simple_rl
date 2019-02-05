@@ -9,12 +9,11 @@ import pdb
 from copy import deepcopy
 import itertools
 import torch
+from scipy.spatial import distance
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
-from simple_rl.abstraction.action_abs.PredicateClass import Predicate
-from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
 from simple_rl.tasks.pinball.PinballStateClass import PinballState, PositionalPinballState
 import time
 
@@ -42,70 +41,49 @@ class Experience(object):
 
 class Option(object):
 
-	def __init__(self, init_predicate, term_predicate, init_state, policy, overall_mdp, actions=[], name="o",
-				 term_prob=0.01, default_q=0., global_solver=None, buffer_length=40, pretrained=False,
-				 num_subgoal_hits_required=3, subgoal_reward=5000., give_negative_rewards=True,
-				 max_steps=20000, seed=0, parent=None, children=[], classifier_type="bocsvm",
-				 enable_timeout=False, negative_reward_ratio=0.5):
+	def __init__(self, overall_mdp, name, global_solver, buffer_length=20, pretrained=False,
+				 num_subgoal_hits_required=3, subgoal_reward=1., max_steps=20000, seed=0, parent=None, children=[],
+				 classifier_type="ocsvm", enable_timeout=True, timeout=200):
 		'''
 		Args:
-			init_predicate (S --> {0,1})
-			term_predicate (S --> {0,1})
-			init_state (State)
-			policy (S --> A)
 			overall_mdp (MDP)
-			actions (list)
 			name (str)
-			term_prob (float)
-			default_q (float)
 			global_solver (DQNAgent)
 			buffer_length (int)
 			pretrained (bool)
 			num_subgoal_hits_required (int)
 			subgoal_reward (float)
-			give_negative_rewards (bool)
 			max_steps (int)
 			seed (int)
 			parent (Option)
 			children (list)
 			classifier_type (str)
 			enable_timeout (bool)
-			negative_reward_ratio (float)
+			timeout (int)
 		'''
-		self.init_predicate = init_predicate
-		self.term_predicate = term_predicate
-		self.init_state = init_state
 		self.term_flag = False
 		self.name = name
-		self.term_prob = term_prob
 		self.buffer_length = buffer_length
 		self.pretrained = pretrained
 		self.num_subgoal_hits_required = num_subgoal_hits_required
 		self.subgoal_reward = subgoal_reward
-		self.give_negatives_subgoal_rewards = give_negative_rewards
 		self.max_steps = max_steps
 		self.seed = seed
 		self.parent = parent
 		self.children = children
 		self.classifier_type = classifier_type
 		self.enable_timeout = enable_timeout
-		self.negative_reward_ratio = negative_reward_ratio
+		self.timeout = timeout if enable_timeout else np.inf
+
+		self.initiation_period = 7
 
 		self.option_idx = 0 if self.parent is None else self.parent.option_idx + 1
 
 		random.seed(seed)
+		np.random.seed(seed)
 
 		if classifier_type == "bocsvm" and parent is None:
 			raise AssertionError("{}'s parent cannot be none".format(self.name))
-
-		# if init_state.is_terminal() and not self.is_term_true(init_state):
-		init_state.set_terminal(False)
-
-		if type(policy) is defaultdict or type(policy) is dict:
-			self.policy_dict = dict(policy)
-			self.policy = self.policy_from_dict
-		else:
-			self.policy = policy
 
 		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), len(overall_mdp.actions),
 							   trained_options=[], seed=self.seed, name=name, use_double_dqn=global_solver.use_ddqn,
@@ -116,10 +94,11 @@ class Option(object):
 		self.solver.policy_network.initialize_with_bigger_network(self.global_solver.policy_network)
 		self.solver.target_network.initialize_with_bigger_network(self.global_solver.target_network)
 
-		self.initiation_classifier = svm.OneClassSVM(nu=0.01, gamma="auto")
+		self.initiation_classifier = None
 
 		# List of buffers: will use these to train the initiation classifier and the local policy respectively
-		self.initiation_data = []
+		self.positive_examples = []
+		self.negative_examples = []
 		self.experience_buffer = []
 
 		self.overall_mdp = overall_mdp
@@ -157,47 +136,72 @@ class Option(object):
 	def __ne__(self, other):
 		return not self == other
 
+	@staticmethod
+	def _get_positional_state(ground_state):
+		if isinstance(ground_state, PositionalPinballState):
+			return ground_state
+		if isinstance(ground_state, PinballState):
+			return ground_state.convert_to_positional_state()
+		elif isinstance(ground_state, np.ndarray):
+			return PositionalPinballState(ground_state[0], ground_state[1])
+		raise ValueError("Got state of type {}".format(type(ground_state)))
+
+	def distance_to_closest_positive_example(self, state):
+		XA = state.get_position()
+		XB = self._construct_feature_matrix(self.positive_examples)
+		distances = distance.cdist(XA[None, ...], XB, "euclidean")
+		return np.min(distances)
+
+	def batched_is_init_true(self, positional_state_matrix):
+		assert positional_state_matrix.shape[1] == 2, "Expected columns to correspond to x, y positions"
+		if self.classifier_type == "tcsvm":
+			svm_predictions = self.initiation_classifier.predict(positional_state_matrix)
+
+			positive_example_matrix = self._construct_feature_matrix(self.positive_examples)
+			distance_matrix = distance.cdist(positional_state_matrix, positive_example_matrix, "euclidean")
+			closest_distances = np.min(distance_matrix, axis=1)
+			distance_predictions = closest_distances < 0.1
+
+			predictions = np.logical_and(svm_predictions, distance_predictions)
+			return predictions
+		if self.classifier_type == "ocsvm":
+			return self.initiation_classifier.predict(positional_state_matrix)
+		raise NotImplementedError("Classifier type {} not supported".format(self.classifier_type))
+
 	def is_init_true(self, ground_state):
-		if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
-			positional_state = ground_state.convert_to_positional_state()
-			return self.init_predicate.is_true(positional_state)
-		elif isinstance(ground_state, np.ndarray):
-			positional_state = PositionalPinballState(ground_state[0], ground_state[1])
-			return self.init_predicate.is_true(positional_state)
-		return self.init_predicate.is_true(ground_state)
+		positional_state = self._get_positional_state(ground_state)
+		svm_decision = self.initiation_classifier.predict([positional_state.features()])[0] == 1
 
+		if self.classifier_type == "ocsvm":
+			return svm_decision
+		if self.classifier_type == "tcsvm":
+			dist = self.distance_to_closest_positive_example(positional_state)
+			return svm_decision and dist < 0.1
+		raise NotImplementedError("Classifier type {} not supported".format(self.classifier_type))
+
+	# TODO: Does it make more sense to return true for entering *any* parent's initiation set
+	# e.g, if I enter my grand-parent's initiation set, should that be a terminal transition?
 	def is_term_true(self, ground_state):
-		if isinstance(ground_state, LunarLanderState) or isinstance(ground_state, PinballState):
-			positional_state = ground_state.convert_to_positional_state()
-			return self.term_predicate.is_true(positional_state)
-		elif isinstance(ground_state, np.ndarray):
-			positional_state = PositionalPinballState(ground_state[0], ground_state[1])
-			return self.term_predicate.is_true(positional_state)
-		return self.term_predicate.is_true(ground_state) # or self.term_flag or self.term_prob > random.random()
+		if self.parent is not None:
+			return self.parent.is_init_true(ground_state)
 
-	def act(self, ground_state):
-		return self.policy(ground_state)
+		# If option does not have a parent, it must be the goal option
+		assert self.name == "overall_goal_policy", "{}".format(self.name)
+		positional_state = self._get_positional_state(ground_state)
+		return self.overall_mdp.is_goal_state(positional_state)
 
-	def set_policy(self, policy):
-		self.policy = policy
+	def get_final_positive_examples(self):
+		positive_trajectories = self.positive_examples
+		return [trajectory[-1] for trajectory in positive_trajectories]
 
-	def set_name(self, new_name):
-		self.name = new_name
-
-	def get_child_option(self, num_trained_options):
-		# Create new option whose termination is the initiation of the option we just trained
-		name = "option_{}".format(str(num_trained_options))
-		print("Creating {}".format(name))
-
-		# Using the global init_state as the init_state for all child options
-		untrained_option = self.create_child_option(init_state=deepcopy(self.overall_mdp.init_state),
-													actions=self.overall_mdp.actions,
-													new_option_name=name,
-													global_solver=self.global_solver,
-													buffer_length=self.buffer_length,
-													num_subgoal_hits=self.num_subgoal_hits_required,
-													subgoal_reward=self.subgoal_reward)
-		return untrained_option
+	def get_training_phase(self):
+		if self.num_goal_hits < self.num_subgoal_hits_required:
+			return "gestation"
+		if self.num_goal_hits < (self.num_subgoal_hits_required + self.initiation_period):
+			return "initiation"
+		if self.num_goal_hits == (self.num_subgoal_hits_required + self.initiation_period):
+			return "initiation_done"
+		return "trained"
 
 	def add_initiation_experience(self, states_queue):
 		"""
@@ -214,7 +218,7 @@ class Option(object):
 		last_state = positional_states[-1]
 		filtered_positional_states = list(filter(lambda s: np.linalg.norm(s.features() - last_state.features()) < 0.3, positional_states))
 
-		self.initiation_data.append(filtered_positional_states)
+		self.positive_examples.append(filtered_positional_states)
 
 	def add_experience_buffer(self, experience_queue):
 		"""
@@ -226,16 +230,6 @@ class Option(object):
 		experiences = [Experience(*exp) for exp in experience_queue]
 		self.experience_buffer.append(experiences)
 
-	def are_states_in_sibling_initiation(self, states_queue):
-		states = list(states_queue)
-		siblings = self.parent.children
-		for sibling in siblings: # type: Option
-			if sibling != self:
-				for state in states:
-					if sibling.is_init_true(state):
-						return True
-		return False
-
 	@staticmethod
 	def _construct_feature_matrix(examples_matrix):
 		states = list(itertools.chain.from_iterable(examples_matrix))
@@ -246,78 +240,29 @@ class Option(object):
 			X[row, :] = states[row].features()
 		return X
 
-	def sample_points_inside(self, ocsvm, num_points_to_sample):
-		random_points = np.random.rand(500, 2)
-
-		predicate = lambda s: ocsvm.predict([s])[0] == 1
-		perimissable_points = list(filter(predicate, random_points))
-		return np.array(perimissable_points)[-num_points_to_sample:, :]
-
-	@staticmethod
-	def _convert_spread_to_nu(spread):
-		def get_slope_and_intercept(points):
-			x_coords, y_coords = zip(*points)
-			A = np.vstack([x_coords, np.ones(len(x_coords))]).T
-			slope, intercept = np.linalg.lstsq(A, y_coords, rcond=None)[0]
-			return slope, intercept
-
-		spread_lower_limit = 0.05
-		spread_uppper_limit = 0.3
-		nu_lower_limit = 0.01
-		nu_upper_limit = 0.5
-
-		xy_points = [(spread_lower_limit, nu_lower_limit), (spread_uppper_limit, nu_upper_limit)]
-
-		if spread <= spread_lower_limit:
-			return nu_lower_limit
-		if spread >= spread_uppper_limit:
-			return nu_upper_limit
-
-		m, c = get_slope_and_intercept(xy_points)
-
-		return (m * spread) + c
-
-	def train_biased_one_class_svm(self):
-		positive_feature_matrix = self._construct_feature_matrix(self.initiation_data)
-		std = np.std(positive_feature_matrix, axis=0)
-		spread = np.sum(std)
-
-		parent_sampled_positives = self.sample_points_inside(self.parent.initiation_classifier, num_points_to_sample=6)
-		features = np.concatenate((positive_feature_matrix, parent_sampled_positives))
-
-		nu = self._convert_spread_to_nu(spread)
-		print("\nCreating BOC-SVM with nu ", nu)
-		self.initiation_classifier = svm.OneClassSVM(nu=nu, gamma="scale")
-		self.initiation_classifier.fit(features)
-
-		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0] == 1,
-										name=self.name + '_init_predicate')
-
 	def train_one_class_svm(self):
-		assert len(self.initiation_data) == self.num_subgoal_hits_required, "Expected init data to be a list of lists"
-		positive_feature_matrix = self._construct_feature_matrix(self.initiation_data)
-		self.initiation_classifier.fit(positive_feature_matrix)
-		# The OneClassSVM.predict() returns 1 for in-class samples, and -1 for out-of-class samples
-		self.init_predicate = Predicate(func=lambda s: self.initiation_classifier.predict([s.features()])[0] == 1,
-										name=self.name + '_init_predicate')
+		assert len(self.positive_examples) == self.num_subgoal_hits_required, "Expected init data to be a list of lists"
+		positive_feature_matrix = self._construct_feature_matrix(self.positive_examples)
 
+		self.initiation_classifier = svm.OneClassSVM(nu=0.01, gamma="auto")
+		self.initiation_classifier.fit(positive_feature_matrix)
+
+	def train_two_class_classifier(self):
+		positive_feature_matrix = self._construct_feature_matrix(self.positive_examples)
+		negative_feature_matrix = self._construct_feature_matrix(self.negative_examples)
+		positive_labels = [1] * positive_feature_matrix.shape[0]
+		negative_labels = [0] * negative_feature_matrix.shape[0]
+
+		X = np.concatenate((positive_feature_matrix, negative_feature_matrix))
+		Y = np.concatenate((positive_labels, negative_labels))
+
+		# We use a 2-class balanced SVM which sets class weights based on their ratios in the training data
+		self.initiation_classifier = svm.SVC(kernel="rbf", gamma="scale", class_weight="balanced")
+		self.initiation_classifier.fit(X, Y)
+		self.classifier_type = "tcsvm"
 
 	def train_initiation_classifier(self):
-		if self.classifier_type == "bocsvm":
-			self.train_biased_one_class_svm()
-		else:
-			self.train_one_class_svm()
-
-	def compute_degree_overlap_with_parent(self):
-		if self.parent is None:
-			return 0.
-		parent_initiation_data = list(itertools.chain.from_iterable(self.parent.initiation_data))
-		num_inside, total_num = 0., 0
-		for state in parent_initiation_data:
-			total_num += 1
-			if self.is_init_true(state):
-				num_inside += 1
-		return num_inside / total_num
+		self.train_one_class_svm()
 
 	@staticmethod
 	def get_center_of_initiation_data(initiation_data):
@@ -328,50 +273,49 @@ class Option(object):
 		y_center = (max(y_positions) + min(y_positions)) / 2.
 		return np.array([x_center, y_center])
 
-	def is_option_further_than_parent(self):
-		if self.parent is None:
-			return True
-		parent_center_point = self.get_center_of_initiation_data(self.parent.initiation_data)
-		self_center_point = self.get_center_of_initiation_data(self.initiation_data)
-		return (self_center_point[1] > parent_center_point[1]) or \
-			   ((parent_center_point[1] - self_center_point[1]) < 0.01)
+	def off_policy_update(self, state, action, reward, next_state):
+		assert self.overall_mdp.is_primitive_action(action), "option should be markov: {}".format(action)
+		assert not state.is_terminal(), "Terminal state did not terminate at some point"
 
-	def is_beneficial_to_construct_option(self):
-		overlap_condition = self.compute_degree_overlap_with_parent() < 0.8
-		relation_condition = self.is_option_further_than_parent()
-		return overlap_condition and relation_condition
+		# Don't make updates while walking around the termination set of an option
+		if self.is_term_true(state):
+			return
+
+		# Off-policy updates for states outside tne initiation set were discarded
+		# if self.is_init_true(state):
+		if self.is_term_true(next_state):
+			if self.name == "overall_goal_policy":
+				self.solver.step(state.features(), action, reward, next_state.features(), True, num_steps=1)
+			else:
+				self.solver.step(state.features(), action, reward + self.subgoal_reward, next_state.features(), True, num_steps=1)
+		elif self.is_init_true(state):
+			self.solver.step(state.features(), action, reward, next_state.features(), False, num_steps=1)
 
 	def update_option_solver(self, s, a, r, s_prime):
 		assert self.overall_mdp.is_primitive_action(a), "Option solver should be over primitive actions: {}".format(a)
-		if self.pretrained: return
+		assert not s.is_terminal(), "Terminal state did not terminate at some point"
 
-		successful = self.is_init_true(s) and self.is_term_true(s_prime) and not self.is_term_true(s)
-		failed = self.is_init_true(s) and not self.is_init_true(s_prime) and not self.is_term_true(s_prime)
+		if self.is_term_true(s): #, "Don't call on-policy updater on {} term states: {}".format(self.name, s)
+			pdb.set_trace()
 
-		if self.give_negatives_subgoal_rewards:
-			midst = self.is_init_true(s) and self.is_init_true(s_prime) and not self.is_term_true(s) and not self.is_term_true(s_prime)
-		else:
-			midst = self.is_init_true(s) and not self.is_term_true(s) and not self.is_term_true(s_prime)
+		if self.pretrained:
+			return
 
-		if successful:
-			assert self.is_term_true(s_prime), "Thought {} was a successful transition".format(s_prime)
+		if self.is_term_true(s_prime):
 			self.num_successful_updates += 1
-			self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), True, num_steps=1)
-
-		elif failed and self.give_negatives_subgoal_rewards:
-			assert not self.is_term_true(s_prime), "Thought {} was supposed to be failure state".format(s_prime)
-			self.num_unsuccessful_updates += 1
-			negative_reward = self.negative_reward_ratio * self.subgoal_reward
-			self.solver.step(s.features(), a, r - negative_reward, s_prime.features(), True, num_steps=1)
-
-		# In the middle of executing the option
-		elif midst:
+			if self.name == "overall_goal_policy":
+				self.solver.step(s.features(), a, r, s_prime.features(), True, num_steps=1)
+			else:
+				self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), True, num_steps=1)
+		elif s_prime.is_terminal():
+			pdb.set_trace()
+			self.solver.step(s.features(), a, r, s_prime.features(), True, num_steps=1)
+		else:
 			self.solver.step(s.features(), a, r, s_prime.features(), False, num_steps=1)
 
 		self.num_option_updates += 1
 		if self.solver.tensor_log:
 			self.solver.writer.add_scalar("PositiveExecutions", self.num_successful_updates, self.num_option_updates)
-			self.solver.writer.add_scalar("NegativeExecutions", self.num_unsuccessful_updates, self.num_option_updates)
 
 	def initialize_option_policy(self):
 		# Initialize the local DQN's policy with the weights of the global DQN
@@ -387,23 +331,7 @@ class Option(object):
 		experience_buffer = list(itertools.chain.from_iterable(self.experience_buffer))
 		for experience in experience_buffer:
 			state, a, r, s_prime = experience.serialize()
-			self.update_option_solver(state, a, r, s_prime)
-
-		# TODO: Experimental
-		# We only see 1 positive reward transition for each trajectory (which can be as long as 15000 steps)
-		# To increase the probability of samping the positive reward transition, I am adding that transition
-		# multiple times to the replay buffer
-		# for _ in range(2500):
-		# 	experience = experience_buffer[-1]
-		# 	state, action, reward, next_state = experience.serialize()
-		# 	self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal())
-
-	def bottom_right_states(self, states_buffer):
-		states = list(states_buffer)
-		for state in states:
-			if state.x < 0.4 or state.y < 0.5:
-				return False
-		return True
+			self.off_policy_update(state, a, r, s_prime)
 
 	def train(self, experience_buffer, state_buffer):
 		"""
@@ -415,122 +343,41 @@ class Option(object):
 		Returns:
 			trained (bool): whether or not we actually trained this option
 		"""
-		if "tree" in self.name:
-			if not self.are_states_in_sibling_initiation(state_buffer) and self.bottom_right_states(state_buffer):
-				self.add_initiation_experience(state_buffer)
-				self.add_experience_buffer(experience_buffer)
-				self.num_goal_hits += 1
-		else:
-			self.add_initiation_experience(state_buffer)
-			self.add_experience_buffer(experience_buffer)
-			self.num_goal_hits += 1
+		self.add_initiation_experience(state_buffer)
+		self.add_experience_buffer(experience_buffer)
+		self.num_goal_hits += 1
 
 		if self.num_goal_hits >= self.num_subgoal_hits_required:
 			self.train_initiation_classifier()
-			# pdb.set_trace()
-			if not self.is_beneficial_to_construct_option():
-				self.num_goal_hits = 0
-				self.initiation_data = []
-				self.experience_buffer = []
-				return False
 			self.initialize_option_policy()
 			return True
 		return False
-
-	def update_trained_option_policy(self, experience_buffer):
-		"""
-		If we hit the termination set of a trained option, we may want to update its policy.
-		Args:
-			experience_buffer (deque): (s, a, r, s')
-		"""
-		self.num_times_indirect_update += 1
-		positive_experiences = list(experience_buffer)
-		positive_states = [positive_experience[0] for positive_experience in positive_experiences]
-		self.policy_refinement_data.append(positive_states)
-		for experience in positive_experiences:
-			state, action, reward, next_state = experience
-			self.solver.step(state.features(), action, reward, next_state.features(), self.is_term_true(next_state))
-
-	def create_child_option(self, init_state, actions, new_option_name, global_solver, buffer_length, num_subgoal_hits,
-							default_q=0., pretrained=False, subgoal_reward=5000.):
-		term_pred = Predicate(func=self.init_predicate.func, name=new_option_name + '_term_predicate')
-		untrained_option = Option(init_predicate=None, term_predicate=term_pred, policy={}, init_state=init_state,
-								  actions=actions, overall_mdp=self.overall_mdp, name=new_option_name, term_prob=0.,
-								  default_q=default_q, global_solver=global_solver, buffer_length=buffer_length,
-								  pretrained=pretrained, num_subgoal_hits_required=num_subgoal_hits,
-								  subgoal_reward=subgoal_reward, give_negative_rewards=self.give_negatives_subgoal_rewards,
-								  seed=self.seed, parent=self, children=[], classifier_type="ocsvm",
-								  negative_reward_ratio=self.negative_reward_ratio, enable_timeout=self.enable_timeout)
-		self.children.append(untrained_option)
-		return untrained_option
-
-	def act_until_terminal(self, cur_state, transition_func):
-		'''
-		Summary:
-			Executes the option until termination.
-		'''
-		if self.is_init_true(cur_state):
-			cur_state = transition_func(cur_state, self.act(cur_state))
-			while not self.is_term_true(cur_state):
-				cur_state = transition_func(cur_state, self.act(cur_state))
-
-		return cur_state
-
-	def rollout(self, cur_state, reward_func, transition_func, step_cost=0):
-		'''
-		Summary:
-			Executes the option until termination.
-
-		Returns:
-			(tuple):
-				1. (State): state we landed in.
-				2. (float): Reward from the trajectory.
-		'''
-		total_reward = 0
-		if self.is_init_true(cur_state):
-			# First step.
-			total_reward += reward_func(cur_state, self.act(cur_state)) - step_cost
-			cur_state = transition_func(cur_state, self.act(cur_state))
-
-			# Act until terminal.
-			while not self.is_term_true(cur_state):
-				cur_state = transition_func(cur_state, self.act(cur_state))
-				total_reward += reward_func(cur_state, self.act(cur_state)) - step_cost
-
-		return cur_state, total_reward
 
 	def execute_option_in_mdp(self, mdp, step_number):
 		"""
 		Option main control loop.
 
 		Args:
-		    mdp (MDP): environment where actions are being taken
-		    step_number (int): how many steps have already elapsed in the outer control loop.
+			mdp (MDP): environment where actions are being taken
+			step_number (int): how many steps have already elapsed in the outer control loop.
 
 		Returns:
 			option_transitions (list): list of (s, a, r, s') tuples
 			discounted_reward (float): cumulative discounted reward obtained by executing the option
 		"""
+		start_state = deepcopy(mdp.cur_state)
 		state = mdp.cur_state
 
 		if self.is_init_true(state):
 
-			# ------------------ Debug logging for option's policy learning ------------------
-			self.total_executions += 1
-			self.starting_points.append(state)
-			self.num_states_in_replay_buffer.append(len(self.solver.replay_buffer))
-			self.num_learning_updates_dqn.append(self.solver.num_updates)
-			self.num_indirect_updates.append(self.num_times_indirect_update)
-			# ---------------------------------------------------------------------------------
-
 			option_transitions = []
+			visited_states = []
 			discounted_reward = 0.
 			self.num_executions += 1
 			num_steps = 0
-			timeout_condition = (num_steps < (25 * self.buffer_length)) if self.enable_timeout else True
 
-			while self.is_init_true(state) and not self.is_term_true(state) and \
-					not state.is_terminal() and step_number < self.max_steps and timeout_condition:
+			while not self.is_term_true(state) and not state.is_terminal() and \
+					step_number < self.max_steps and num_steps < self.timeout:
 
 				action = self.solver.act(state.features(), train_mode=True)
 				reward, next_state = mdp.execute_agent_action(action, option_idx=self.option_idx)
@@ -543,6 +390,8 @@ class Option(object):
 				self.global_solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal(), num_steps=1)
 
 				option_transitions.append((state, action, reward, next_state))
+				visited_states.append(state)
+
 				discounted_reward += ((self.solver.gamma ** num_steps) * reward)
 				state = next_state
 
@@ -555,7 +404,11 @@ class Option(object):
 				step_number += 1
 				num_steps += 1
 
-			self.ending_points.append(state)
+			# Don't forget to add the terminal state to the followed trajectory
+			visited_states.append(state)
+
+			if self.get_training_phase() == "initiation":
+				self.refine_initiation_set_classifier(visited_states, start_state, state, num_steps)
 
 			if self.solver.tensor_log:
 				self.solver.writer.add_scalar("ExecutionLength", len(option_transitions), self.num_executions)
@@ -563,6 +416,30 @@ class Option(object):
 			return option_transitions, discounted_reward
 
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
+
+	def refine_initiation_set_classifier(self, visited_states, start_state, final_state, num_steps):
+		if self.is_term_true(final_state):  # success
+			self.num_goal_hits += 1
+			if not self.pretrained:
+				positive_states = [start_state] + visited_states[-self.buffer_length:]
+				positive_positional_states = list(map(lambda s: s.convert_to_positional_state(), positive_states))
+				self.positive_examples.append(positive_positional_states)
+
+				# Refine the initiation set classifier
+				if len(self.negative_examples) > 0:
+					self.train_two_class_classifier()
+					from simple_rl.skill_chaining.skill_chaining_utils import plot_binary_initiation_set
+					plot_binary_initiation_set(self)
+
+		elif num_steps == self.timeout:
+			negative_examples = [start_state.convert_to_positional_state()]
+			if self.parent is not None:
+				parent_sampled_negative = random.choice(self.parent.get_final_positive_examples())
+				negative_examples.append(parent_sampled_negative)
+			self.negative_examples.append(negative_examples)
+		else:
+			pdb.set_trace()
+			print("Why did I stop here?")
 
 	def trained_option_execution(self, mdp, outer_step_counter, episodic_budget):
 		state = mdp.cur_state
@@ -590,15 +467,3 @@ class Option(object):
 				print("Success" if self.is_term_true(next_state) else "Failure")
 			elif not self.is_init_true(state):
 				print("{} not in {}'s initiation set".format(state, self.name))
-
-
-	def policy_from_dict(self, state):
-		if state not in self.policy_dict.keys():
-			self.term_flag = True
-			return random.choice(list(set(self.policy_dict.values())))
-		else:
-			self.term_flag = False
-			return self.policy_dict[state]
-
-	def term_func_from_list(self, state):
-		return state in self.term_list

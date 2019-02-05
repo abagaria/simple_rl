@@ -52,6 +52,8 @@ class GlobalEpsilonSchedule(EpsilonSchedule):
     def update_epsilon(self, current_epsilon, num_executions):
         if num_executions < self.eps_linear_decay_length:
             return current_epsilon - self.eps_linear_decay
+        if num_executions == self.eps_linear_decay_length:
+            print("Global Epsilon schedule switching to exponential decay")
         return max(self.eps_end, self.eps_exp_decay * current_epsilon)
 
 class OptionEpsilonSchedule(EpsilonSchedule):
@@ -348,9 +350,11 @@ class DQNAgent(Agent):
 
             positional_states = states[:, :2]
 
+            # TODO: Change this to batched_is_init_true
             for idx, option in enumerate(self.trained_options): # type: Option
-                inits = option.initiation_classifier.predict(positional_states)
-                terms = np.zeros(inits.shape) if option.parent is None else option.parent.initiation_classifier.predict(positional_states)
+                # inits = option.initiation_classifier.predict(positional_states)
+                inits = option.batched_is_init_true(positional_states)
+                terms = np.zeros(inits.shape) if option.parent is None else option.parent.batched_is_init_true(positional_states)
                 action_values[(inits != 1) | (terms == 1), idx + self.num_original_actions] = np.min(action_values) - 1.
 
             # Move the q-values back the GPU

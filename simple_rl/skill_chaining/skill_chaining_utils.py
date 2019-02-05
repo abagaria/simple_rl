@@ -14,7 +14,7 @@ from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import Positio
 from simple_rl.tasks.pinball.PinballStateClass import PinballState
 
 
-def plot_trajectory(trajectory, show=True, color='k', with_experiences=False):
+def plot_trajectory(trajectory, show=True, color='k', with_experiences=False, marker="o"):
     """
     Given State objects, plot their x and y positions and shade them based on time
     Args:
@@ -24,10 +24,10 @@ def plot_trajectory(trajectory, show=True, color='k', with_experiences=False):
     for i, state in enumerate(trajectory):
         if with_experiences:
             state = state.state
-        plt.scatter(state.x, state.y, c=color, alpha=float(i) / len(trajectory))
+        plt.scatter(state.x, state.y, c=color, alpha=float(i) / len(trajectory), marker=marker)
     if show: plt.show()
 
-def plot_all_trajectories_in_initiation_data(initiation_data, with_experiences=False, new_fig=False, show=False, option_name=""):
+def plot_all_trajectories_in_initiation_data(initiation_data, with_experiences=False, new_fig=False, show=False, option_name="", marker="o"):
     """
     Plot all the state buffers of an option
     Args:
@@ -36,7 +36,7 @@ def plot_all_trajectories_in_initiation_data(initiation_data, with_experiences=F
     if new_fig: plt.figure()
     possible_colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
     for i, trajectory in enumerate(initiation_data):
-        plot_trajectory(trajectory, show=show, color=possible_colors[i], with_experiences=with_experiences)
+        plot_trajectory(trajectory, show=show, color=possible_colors[i], with_experiences=with_experiences, marker=marker)
     if new_fig:
         plt.xlim((0., 1.))
         plt.ylim((0., 1.))
@@ -52,16 +52,15 @@ def make_meshgrid(x, y, h=.02):
     return xx, yy
 
 
-def plot_contours(ax, clf, xx, yy, **params):
-    Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
+def plot_contours(ax, option, xx, yy, **params):
+    Z = option.batched_is_init_true(np.c_[xx.ravel(), yy.ravel()])
     Z = Z.reshape(xx.shape)
     out = ax.contourf(xx, yy, Z, **params)
     return out
 
 def get_init_data_and_labels(option):
-    positive_examples, negative_examples = option._split_experience_into_pos_neg_examples()
-    positive_feature_matrix = option._construct_feature_matrix(positive_examples)
-    negative_feature_matrix = option._construct_feature_matrix(negative_examples)
+    positive_feature_matrix = option._construct_feature_matrix(option.positive_examples)
+    negative_feature_matrix = option._construct_feature_matrix(option.negative_examples)
     positive_labels = [1] * positive_feature_matrix.shape[0]
     negative_labels = [0] * negative_feature_matrix.shape[0]
     X = np.concatenate((positive_feature_matrix, negative_feature_matrix))
@@ -79,8 +78,25 @@ def plot_initiation_set(option):
     plt.savefig("{}_initiation_set_{}.png".format(option.name, time.time()))
     plt.close()
 
+def plot_binary_initiation_set(option):
+    fig, sub = plt.subplots(1, 1)
+    X, Y = get_init_data_and_labels(option)
+    X0, X1 = X[:, 0], X[:, 1]
+    xx, yy = make_meshgrid(X0, X1)
+    plot_contours(sub, option, xx, yy, cmap=plt.cm.coolwarm, alpha=0.5)
+    plt.scatter(X0, X1, c=Y, cmap=plt.cm.coolwarm, s=40, edgecolors='k')
+    plt.xlim((0., 1.))
+    plt.ylim((0., 1.))
+    plt.gca().invert_yaxis()
+
+    background_image = imread("pinball_domain.png")
+    plt.imshow(background_image, zorder=0, alpha=0.5, extent=[0., 1., 1., 0.])
+
+    plt.savefig("{}_initiation_set_{}.png".format(option.name, time.time()))
+    plt.close()
+
 def get_one_class_init_data(option):
-    positive_feature_matrix = option._construct_feature_matrix(option.initiation_data)
+    positive_feature_matrix = option._construct_feature_matrix(option.positive_examples)
     return positive_feature_matrix
 
 def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
@@ -101,9 +117,9 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
 
     # for row in range(X.shape[0]):
     #     plt.scatter(X0[row], X1[row], c='k', alpha=0.5)
-    plot_all_trajectories_in_initiation_data(option.initiation_data)
+    plot_all_trajectories_in_initiation_data(option.positive_examples)
 
-    center_point = option.get_center_of_initiation_data(option.initiation_data)
+    center_point = option.get_center_of_initiation_data(option.positive_examples)
     plt.scatter(center_point[0], center_point[1], s=50, marker="x", c="black", zorder=1)
     plt.imshow(background_image, zorder=0, alpha=0.5, extent=[0., 1., 1., 0.])
 
@@ -120,10 +136,10 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
     plt.savefig("{}_one_class_svm_{}.png".format(option.name, time.time()))
     plt.close()
 
-def visualize_option_replay_buffer(option):
-    goal_transitions = list(filter(lambda e: e.reward > 0, option.solver.replay_buffer.memory))
-    cliff_transitions = list(filter(lambda e: e.reward < 0 and e.done == 1, option.solver.replay_buffer.memory))
-    non_terminals = list(filter(lambda e: e.done == 0, option.solver.replay_buffer.memory))
+def visualize_dqn_replay_buffer(solver):
+    goal_transitions = list(filter(lambda e: e.reward > 0, solver.replay_buffer.memory))
+    cliff_transitions = list(filter(lambda e: e.reward < 0 and e.done == 1, solver.replay_buffer.memory))
+    non_terminals = list(filter(lambda e: e.done == 0, solver.replay_buffer.memory))
 
     goal_x = [e.next_state[0] for e in goal_transitions]
     goal_y = [e.next_state[1] for e in goal_transitions]
@@ -135,18 +151,56 @@ def visualize_option_replay_buffer(option):
     background_image = imread("pinball_domain.png")
 
     plt.figure()
-    plt.scatter(goal_x, goal_y, alpha=0.33, label="goal")
-    plt.scatter(cliff_x, cliff_y, alpha=0.33, label="cliff")
+    plt.scatter(cliff_x, cliff_y, alpha=0.67, label="cliff")
     plt.scatter(non_term_x, non_term_y, alpha=0.2, label="non_terminal")
+    plt.scatter(goal_x, goal_y, alpha=0.67, label="goal")
     plt.imshow(background_image, zorder=0, alpha=0.5, extent=[0., 1., 1., 0.])
 
     plt.legend()
     plt.xlim((0., 1.))
     plt.ylim((0., 1.))
     plt.gca().invert_yaxis()
-    plt.savefig("{}_replay_buffer_analysis.png".format(option.name))
+    plt.title("# transitions = {}".format(len(solver.replay_buffer)))
+    plt.savefig("{}_replay_buffer_analysis.png".format(solver.name))
     plt.close()
 
+def visualize_smdp_updates(global_solver, mdp):
+     smdp_transitions = list(filter(lambda e: not mdp.is_primitive_action(e.action), global_solver.replay_buffer.memory))
+     positive_transitions = list(filter(lambda e: e.reward >= 0, smdp_transitions))
+     negative_transitions = list(filter(lambda e: e.reward < 0, smdp_transitions))
+     terminal_transitions = list(filter(lambda e: e.done == 1, smdp_transitions))
+     assert len(smdp_transitions) == len(positive_transitions) + len(negative_transitions), "No 0 rewards expected"
+
+     positive_start_x = [e.state[0] for e in positive_transitions]
+     positive_start_y = [e.state[1] for e in positive_transitions]
+     positive_end_x = [e.next_state[0] for e in positive_transitions]
+     positive_end_y = [e.next_state[1] for e in positive_transitions]
+
+     negative_start_x = [e.state[0] for e in negative_transitions]
+     negative_start_y = [e.state[1] for e in negative_transitions]
+     negative_end_x = [e.next_state[0] for e in negative_transitions]
+     negative_end_y = [e.next_state[1] for e in negative_transitions]
+
+     goal_x = [e.next_state[0] for e in terminal_transitions]
+     goal_y = [e.next_state[1] for e in terminal_transitions]
+
+     plt.figure(figsize=(8, 5))
+     plt.scatter(positive_start_x, positive_start_y, alpha=0.33, label="+s")
+     plt.scatter(negative_start_x, negative_start_y, alpha=0.33, label="-s")
+     plt.scatter(positive_end_x, positive_end_y, alpha=0.4, label="+s'")
+     plt.scatter(negative_end_x, negative_end_y, alpha=0.4, label="-s'")
+     plt.scatter(goal_x, goal_y, alpha=0.67, label="terminal(s')")
+
+     background_image = imread("pinball_domain.png")
+     plt.imshow(background_image, zorder=0, alpha=0.5, extent=[0., 1., 1., 0.])
+
+     plt.legend()
+     plt.xlim((0., 1.))
+     plt.ylim((0., 1.))
+     plt.gca().invert_yaxis()
+     plt.title("# updates = {}".format(len(smdp_transitions)))
+     plt.savefig("DQN_SMDP_Updates.png")
+     plt.close()
 
 def get_qvalue(agent, state, device):
     state = torch.from_numpy(state).float().unsqueeze(0).to(device)
