@@ -57,9 +57,9 @@ class PinballMDP(MDP):
         # goal_position = np.array(self.domain.environment.target_pos)
         #
         # return -np.linalg.norm(current_position - goal_position)
-        # negatively_clamped_reward = -1. if reward < 0 else reward
-        # return negatively_clamped_reward / self.reward_scale
-        return np.clip(reward, -1., 0)
+        negatively_clamped_reward = -1. if reward < 0 else reward
+        return negatively_clamped_reward / self.reward_scale
+        # return np.clip(reward, -1., 0)
 
 
     def _transition_func(self, state, action):

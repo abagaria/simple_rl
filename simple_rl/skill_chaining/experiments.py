@@ -94,55 +94,66 @@ class SkillChainingExperiments(object):
         buffer_len = 20
         subgoal_reward = 1.0
         learning_rate = 1e-4  # 0.1 of the one we usually use
-        random_seeds = [0] #, 20, 123, 4351, 77] # Because I have only tested the init sets for seed=0
-        max_num_options = [1, 2]
+        random_seeds = [0, 20] #, 123, 4351, 77] # Because I have only tested the init sets for seed=0
+        max_number_of_options = 3
+
         scores = []
+        val_scores = []
         episodes = []
-        algorithms = []
+        val_episodes = []
 
-        for num_options in max_num_options:
-            for random_seed in random_seeds:
-                print()
-                print("=" * 80)
-                print("Training skill chaining agent (seed={}, n_options={})".format(random_seed, num_options))
-                print("=" * 80)
-                list_scores, episode_numbers = [], []
-                for i in range(self.num_instances):
-                    print("\nInstance {} of {}".format(i + 1, self.num_instances))
+        for random_seed in random_seeds:
+            print()
+            print("=" * 80)
+            print("Training skill chaining agent (seed={}, n_options={})".format(random_seed, max_number_of_options))
+            print("=" * 80)
 
-                    self.mdp = PinballMDP(noise=0., episode_length=20000, render=True)
-                    self.state_size = self.mdp.init_state.state_space_size()
-                    self.num_actions = len(self.mdp.actions)
+            self.mdp = PinballMDP(noise=0.0, episode_length=20000, reward_scale=1000., render=True)
+            self.state_size = self.mdp.init_state.state_space_size()
+            self.num_actions = len(self.mdp.actions)
 
-                    solver = DQNAgent(self.state_size, self.num_actions, self.num_actions, [], seed=random_seed,
-                                      name="GlobalDDQN{}".format(num_options), tensor_log=False, use_double_dqn=True,
-                                      lr=learning_rate)
-                    skill_chaining_agent = SkillChaining(self.mdp, self.mdp.goal_predicate, rl_agent=solver,
-                                                         subgoal_reward=subgoal_reward, buffer_length=buffer_len,
-                                                         max_num_options=num_options, seed=random_seed, lr_decay=False)
-                    episodic_scores, episodic_durations = skill_chaining_agent.skill_chaining(num_episodes=self.num_episodes, num_steps=20000)
-                    skill_chaining_agent.perform_experiments()
-                    # skill_chaining_agent.save_all_dqns()
-                    # skill_chaining_agent.save_all_initiation_classifiers()
-                    episode_numbers += list(range(self.num_episodes))
-                    list_scores += episodic_scores
-                scores += list_scores
-                episodes += episode_numbers
-                algorithms += ["nOptions={}".format(num_options)] * len(episode_numbers)
-        scores_dataframe = pd.DataFrame(np.array(scores), columns=["reward"])
-        scores_dataframe["episode"] = np.array(episodes)
+            solver = DQNAgent(self.state_size, len(self.mdp.actions), len(self.mdp.actions), [],
+                              seed=random_seed, lr=learning_rate,
+                              name="GlobalDDQN_{}".format(random_seed), eps_start=1.0, tensor_log=False,
+                              use_double_dqn=True)
+
+            skill_chaining_agent = SkillChaining(self.mdp, rl_agent=solver, buffer_length=buffer_len,
+                            seed=random_seed, subgoal_reward=subgoal_reward, max_num_options=max_number_of_options,
+                            lr_decay=False)
+
+            episodic_scores, episodic_durations = skill_chaining_agent.skill_chaining(num_episodes=self.num_episodes, num_steps=20000)
+            validation_scores = skill_chaining_agent.validation_scores
+
+            skill_chaining_agent.perform_experiments()
+
+            scores += episodic_scores
+            val_scores += np.cumsum(validation_scores)
+            episodes += list(range(len(episodic_scores)))
+            val_episodes += list(range(len(validation_scores)))
+
+        training_scores_dataframe = pd.DataFrame(np.array(scores), columns=["reward"])
+        training_scores_dataframe["episode"] = np.array(episodes)
+
+        validation_scores_dataframe = pd.DataFrame(np.array(val_scores), columns=["cumulative_reward"])
+        validation_scores_dataframe["episode"] = np.array(val_episodes)
 
         plt.figure()
-        scores_dataframe["method"] = np.array(algorithms)
-        sns.lineplot(x="episode", y="reward", hue="method", data=scores_dataframe, estimator=np.median)
-        plt.title("Skill Chaining Learning Curves")
-        plt.savefig("sc_v_dqn_neg_reward.png")
+        sns.lineplot(x="episode", y="reward", data=training_scores_dataframe, estimator=np.median)
+        plt.title("Skill Chaining Scores (Training)")
+        plt.savefig("sc_episodic_rewards.png")
         plt.show()
 
-        self.data_frame = scores_dataframe
-        scores_dataframe.to_pickle("sc_v_dqn_neg_reward.pkl")
+        plt.figure()
+        sns.lineplot(x="episode", y="cumulative_reward", data=validation_scores_dataframe, estimator=np.median)
+        plt.title("Skill Chaining Cumulative Rewards (Validation)")
+        plt.savefig("sc_cum_validation_scores.png")
+        plt.show()
 
-        return scores_dataframe
+        self.data_frame = training_scores_dataframe
+        training_scores_dataframe.to_pickle("sc_training.pkl")
+        validation_scores_dataframe.to_pickle("sc_val.pkl")
+
+        return training_scores_dataframe, validation_scores_dataframe
 
     def run_sc_and_pretrained(self):
         buffer_len = 20
@@ -404,9 +415,9 @@ if __name__ == '__main__':
     experiments = SkillChainingExperiments(None)
     # experiments.compare_agents()
     # subgoal_scores = experiments.compare_hyperparameter_subgoal_reward()
-    # experiments.run_skill_chaining_with_different_seeds()
+    tdf, vdf = experiments.run_skill_chaining_with_different_seeds()
     # scdf = experiments.run_skill_chaining_with_different_seeds()
     # lrdf = experiments.ddqn_hyper_params()
     # dddf = experiments.dqn_vs_ddqn()
-    scdf = experiments.tune_skill_chaining_hyper_params(experiment_name="sc_mse_grad_clipping_comparisons_sgr_0_5")
+    # scdf = experiments.tune_skill_chaining_hyper_params(experiment_name="sc_mse_grad_clipping_comparisons_sgr_0_5")
     # scdf = experiments.run_sc_and_pretrained()

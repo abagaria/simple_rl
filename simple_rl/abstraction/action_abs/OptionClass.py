@@ -284,10 +284,7 @@ class Option(object):
 		# Off-policy updates for states outside tne initiation set were discarded
 		# if self.is_init_true(state):
 		if self.is_term_true(next_state):
-			if self.name == "overall_goal_policy":
-				self.solver.step(state.features(), action, reward, next_state.features(), True, num_steps=1)
-			else:
-				self.solver.step(state.features(), action, reward + self.subgoal_reward, next_state.features(), True, num_steps=1)
+			self.solver.step(state.features(), action, reward + self.subgoal_reward, next_state.features(), True, num_steps=1)
 		elif self.is_init_true(state):
 			self.solver.step(state.features(), action, reward, next_state.features(), False, num_steps=1)
 
@@ -303,10 +300,7 @@ class Option(object):
 
 		if self.is_term_true(s_prime):
 			self.num_successful_updates += 1
-			if self.name == "overall_goal_policy":
-				self.solver.step(s.features(), a, r, s_prime.features(), True, num_steps=1)
-			else:
-				self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), True, num_steps=1)
+			self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), True, num_steps=1)
 		elif s_prime.is_terminal():
 			pdb.set_trace()
 			self.solver.step(s.features(), a, r, s_prime.features(), True, num_steps=1)
@@ -425,12 +419,6 @@ class Option(object):
 				positive_positional_states = list(map(lambda s: s.convert_to_positional_state(), positive_states))
 				self.positive_examples.append(positive_positional_states)
 
-				# Refine the initiation set classifier
-				if len(self.negative_examples) > 0:
-					self.train_two_class_classifier()
-					from simple_rl.skill_chaining.skill_chaining_utils import plot_binary_initiation_set
-					plot_binary_initiation_set(self)
-
 		elif num_steps == self.timeout:
 			negative_examples = [start_state.convert_to_positional_state()]
 			if self.parent is not None:
@@ -441,10 +429,16 @@ class Option(object):
 			pdb.set_trace()
 			print("Why did I stop here?")
 
+		# Refine the initiation set classifier
+		if len(self.negative_examples) > 0:
+			self.train_two_class_classifier()
+			from simple_rl.skill_chaining.skill_chaining_utils import plot_binary_initiation_set
+			plot_binary_initiation_set(self)
+
 	def trained_option_execution(self, mdp, outer_step_counter, episodic_budget):
 		state = mdp.cur_state
 		score, step_number = 0., deepcopy(outer_step_counter)
-		while self.is_init_true(state) and not self.is_term_true(state) and not state.is_terminal()\
+		while not self.is_term_true(state) and not state.is_terminal()\
 				and not state.is_out_of_frame() and step_number < episodic_budget:
 			action = self.solver.act(state.features(), train_mode=False)
 			reward, state = mdp.execute_agent_action(action, option_idx=self.option_idx)

@@ -25,7 +25,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 class SkillChaining(object):
     def __init__(self, mdp, rl_agent, pretrained_options=[],
                  buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3, max_num_options=4, lr_decay=False,
-                 enable_option_timeout=True, intra_option_learning=True, seed=0):
+                 enable_option_timeout=True, intra_option_learning=False, seed=0):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -144,7 +144,9 @@ class SkillChaining(object):
         assert not self.mdp.is_primitive_action(action), "Expected an option, got {}".format(action)
 
         # TODO: Should we do intra-option learning only when the option was successful in reaching its subgoal?
-        # (since the option could have "failed" simply because it timed out
+        # TODO: (since the option could have "failed" simply because it timed out)
+        # TODO: During execution, the option could have gone outside its initiation set, we shouldn't make updates for
+        # TODO: those transitions
         if self.enable_intra_option_learning:
             def get_reward(transitions):
                 gamma = self.global_solver.gamma

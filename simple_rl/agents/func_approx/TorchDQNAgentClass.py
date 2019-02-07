@@ -143,7 +143,7 @@ class DQNAgent(Agent):
 
     def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent",
                  eps_start=1., tensor_log=False, lr=LR, use_double_dqn=False, gamma=GAMMA, loss_function="huber",
-                 gradient_clip=None):
+                 gradient_clip=None, evaluation_epsilon=0.05):
         self.state_size = state_size
         self.action_size = action_size
         self.num_original_actions = num_original_actions
@@ -153,6 +153,7 @@ class DQNAgent(Agent):
         self.gamma = gamma
         self.loss_function = loss_function
         self.gradient_clip = gradient_clip
+        self.evaluation_epsilon = evaluation_epsilon
         self.seed = random.seed(seed)
         self.tensor_log = tensor_log
 
@@ -201,31 +202,6 @@ class DQNAgent(Agent):
         new_learning_rate = self.learning_rate / 100.
         self.set_new_learning_rate(new_learning_rate)
 
-    def initialize_optimizer_with_smaller_agent(self, smaller_agent):
-
-        # Layers that dont need size changes
-        old_ids = id(smaller_agent.policy_network.fc1.weight), id(smaller_agent.policy_network.fc1.bias), \
-                  id(smaller_agent.policy_network.fc2.weight), id(smaller_agent.policy_network.fc2.bias)
-
-        new_ids = id(self.policy_network.fc1.weight), id(self.policy_network.fc1.bias), \
-                  id(self.policy_network.fc2.weight), id(self.policy_network.fc2.bias)
-
-
-        opt_state_dict = smaller_agent.optimizer.state_dict()
-
-        for old_id, new_id in zip(old_ids, new_ids):
-            step = opt_state_dict['state'][old_id]['step']
-            exp_avg = opt_state_dict['state'][old_id]['exp_avg']
-            exp_avg_sq = opt_state_dict['state'][old_id]['exp_avg_sq']
-
-            # new_exp_avg = torch.cat((), 1)
-            pdb.set_trace()
-
-        # Layers that do need size changes
-        old_ids = id(smaller_agent.policy_network.fc3.weight), id(smaller_agent.policy_network.fc3.bias)
-        new_ids = id(self.policy_network.fc3.weight), id(self.policy_network.fc3.bias)
-
-
     def act(self, state, train_mode=True):
         """
         Interface to the DQN agent: state can be output of env.step() and returned action can be input into next step().
@@ -237,7 +213,7 @@ class DQNAgent(Agent):
             action (int): integer representing the action to take in the Gym env
         """
         self.num_executions += 1
-        epsilon = self.epsilon if train_mode else 0.
+        epsilon = self.epsilon if train_mode else self.evaluation_epsilon
 
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
         self.policy_network.eval()
