@@ -94,7 +94,7 @@ class SkillChainingExperiments(object):
         buffer_len = 20
         subgoal_reward = 1.0
         learning_rate = 1e-4  # 0.1 of the one we usually use
-        random_seeds = [0, 20] #, 123, 4351, 77] # Because I have only tested the init sets for seed=0
+        random_seeds = [0, 20, 123, 4351, 77] # Because I have only tested the init sets for seed=0
         max_number_of_options = 3
 
         scores = []
@@ -127,7 +127,7 @@ class SkillChainingExperiments(object):
             skill_chaining_agent.perform_experiments()
 
             scores += episodic_scores
-            val_scores += np.cumsum(validation_scores)
+            val_scores += np.cumsum(validation_scores).tolist()
             episodes += list(range(len(episodic_scores)))
             val_episodes += list(range(len(validation_scores)))
 

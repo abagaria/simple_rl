@@ -283,10 +283,10 @@ class Option(object):
 
 		# Off-policy updates for states outside tne initiation set were discarded
 		# if self.is_init_true(state):
-		if self.is_term_true(next_state):
+		if self.is_init_true(state) and self.is_term_true(next_state):
 			self.solver.step(state.features(), action, reward + self.subgoal_reward, next_state.features(), True, num_steps=1)
 		elif self.is_init_true(state):
-			self.solver.step(state.features(), action, reward, next_state.features(), False, num_steps=1)
+			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal(), num_steps=1)
 
 	def update_option_solver(self, s, a, r, s_prime):
 		assert self.overall_mdp.is_primitive_action(a), "Option solver should be over primitive actions: {}".format(a)
@@ -438,12 +438,14 @@ class Option(object):
 	def trained_option_execution(self, mdp, outer_step_counter, episodic_budget):
 		state = mdp.cur_state
 		score, step_number = 0., deepcopy(outer_step_counter)
+		num_steps = 0
 		while not self.is_term_true(state) and not state.is_terminal()\
-				and not state.is_out_of_frame() and step_number < episodic_budget:
+				and not state.is_out_of_frame() and step_number < episodic_budget and num_steps < self.timeout:
 			action = self.solver.act(state.features(), train_mode=False)
 			reward, state = mdp.execute_agent_action(action, option_idx=self.option_idx)
 			score += reward
 			step_number += 1
+			num_steps += 1
 		return score, state, step_number
 
 	def visualize_learned_policy(self, mdp, num_times=5):
