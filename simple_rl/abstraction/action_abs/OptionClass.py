@@ -181,6 +181,7 @@ class Option(object):
 
 	# TODO: Does it make more sense to return true for entering *any* parent's initiation set
 	# e.g, if I enter my grand-parent's initiation set, should that be a terminal transition?
+	# TODO: Write a batched version of this function and then use it in the DQNAgentClass
 	def is_term_true(self, ground_state):
 		if self.parent is not None:
 			return self.parent.is_init_true(ground_state)
