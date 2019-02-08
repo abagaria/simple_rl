@@ -302,7 +302,7 @@ class Option(object):
 			self.num_successful_updates += 1
 			self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), True, num_steps=1)
 		elif s_prime.is_terminal():
-			pdb.set_trace()
+			print("\rWarning: {} is taking me to the goal state even though its not in its term set\n".format(self.name))
 			self.solver.step(s.features(), a, r, s_prime.features(), True, num_steps=1)
 		else:
 			self.solver.step(s.features(), a, r, s_prime.features(), False, num_steps=1)
@@ -426,8 +426,8 @@ class Option(object):
 				negative_examples.append(parent_sampled_negative)
 			self.negative_examples.append(negative_examples)
 		else:
-			pdb.set_trace()
-			print("Why did I stop here?")
+			assert final_state.is_terminal(), "Hit else case, but {} was not terminal".format(final_state)
+			print("\rWarning: Ended up in goal state when {} was not terminal {}".format(self.name, final_state))
 
 		# Refine the initiation set classifier
 		if len(self.negative_examples) > 0:
