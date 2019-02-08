@@ -195,6 +195,12 @@ class Option(object):
 		positive_trajectories = self.positive_examples
 		return [trajectory[-1] for trajectory in positive_trajectories]
 
+	def get_final_transitions(self):
+		# list of off-policy Experience objects (s, a, r, s') that triggered the
+		# current option's termination set during its gestation period
+		successful_transitions = self.experience_buffer
+		return [trajectory[-1] for trajectory in successful_transitions]
+
 	def get_training_phase(self):
 		if self.num_goal_hits < self.num_subgoal_hits_required:
 			return "gestation"

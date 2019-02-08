@@ -96,6 +96,21 @@ class SkillChaining(object):
         assert new_untrained_option_id != old_untrained_option_id, "Checking python references"
         assert id(self.untrained_option.parent) == old_untrained_option_id, "Checking python references"
 
+    def get_init_q_value_for_new_option(self, newly_trained_option):
+        """
+        Sample the Q-values of transitions that triggered the option’s target event during its gestation,
+        and initialize Q(s, o) to the max of these values.
+        Args:
+            newly_trained_option (Option)
+
+        Returns:
+            init_q_value (float)
+        """
+        final_transitions = newly_trained_option.get_final_transitions()
+        final_state_action_pairs = [(experience.state, experience.action) for experience in final_transitions]
+        q_values = [self.global_solver.get_qvalue(state.features(), action).item() for state, action in final_state_action_pairs]
+        return np.max(q_values)
+
     def _augment_agent_with_new_option(self, newly_trained_option):
         """
         Train the current untrained option and initialize a new one to target.
@@ -115,11 +130,9 @@ class SkillChaining(object):
                                     lr=self.global_solver.learning_rate)
         new_global_agent.replay_buffer = self.global_solver.replay_buffer
 
-        new_global_agent.policy_network.initialize_with_smaller_network(self.global_solver.policy_network)
-        new_global_agent.target_network.initialize_with_smaller_network(self.global_solver.target_network)
-        # new_global_agent.initialize_optimizer_with_smaller_agent(self.global_solver)
-
-        # pdb.set_trace()
+        init_q_value = self.get_init_q_value_for_new_option(newly_trained_option)
+        new_global_agent.policy_network.initialize_with_smaller_network(self.global_solver.policy_network, init_q_value)
+        new_global_agent.target_network.initialize_with_smaller_network(self.global_solver.target_network, init_q_value)
 
         self.global_solver = new_global_agent
 

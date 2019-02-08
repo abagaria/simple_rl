@@ -118,12 +118,13 @@ class QNetwork(nn.Module):
 
         assert self.fc3.out_features == 5, "Expected Pinball with 5 actions, not {} ".format(self.fc3.out_features)
 
-    def initialize_with_smaller_network(self, smaller_net):
+    def initialize_with_smaller_network(self, smaller_net, init_q_value):
         """
         Given a DQN over K actions, create a DQN over K + 1 actions. This is needed when we augment the
         MDP with a new action in the form of a learned option.
         Args:
             smaller_net (QNetwork)
+            init_q_value (float)
         """
         for my_param, source_param in zip(self.fc1.parameters(), smaller_net.fc1.parameters()):
             my_param.data.copy_(source_param)
@@ -135,8 +136,13 @@ class QNetwork(nn.Module):
         self.fc3.bias[:smaller_num_labels].data.copy_(smaller_net.fc3.bias)
 
         new_action_idx = self.fc3.out_features - 1
-        self.fc3.weight[new_action_idx].data.copy_(torch.max(smaller_net.fc3.weight, dim=0)[0])
-        self.fc3.bias[new_action_idx].data.copy_(torch.max(smaller_net.fc3.bias, dim=0)[0])
+
+        # Old way of initializing the weights and biases of the new option node:
+        # self.fc3.weight[new_action_idx].data.copy_(torch.max(smaller_net.fc3.weight, dim=0)[0])
+        # self.fc3.bias[new_action_idx].data.copy_(torch.max(smaller_net.fc3.bias, dim=0)[0])
+
+        init_bias_term = torch.tensor(init_q_value, device=device).float()
+        self.fc3.bias[new_action_idx].data.copy_(init_bias_term)
 
 class DQNAgent(Agent):
     """Interacts with and learns from the environment."""
