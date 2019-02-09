@@ -58,7 +58,7 @@ class GlobalEpsilonSchedule(EpsilonSchedule):
 
 class OptionEpsilonSchedule(EpsilonSchedule):
     def __init__(self, eps_start):
-        EPS_END = 0.01
+        EPS_END = 0.05
         EPS_EXPONENTIAL_DECAY = 0.998
         EPS_LINEAR_DECAY_LENGTH = 10000
         super(OptionEpsilonSchedule, self).__init__(eps_start, EPS_END, EPS_EXPONENTIAL_DECAY, EPS_LINEAR_DECAY_LENGTH)
