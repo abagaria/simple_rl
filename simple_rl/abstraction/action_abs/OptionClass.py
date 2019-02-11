@@ -291,7 +291,7 @@ class Option(object):
 		# Off-policy updates for states outside tne initiation set were discarded
 		# if self.is_init_true(state):
 		if self.is_init_true(state) and self.is_term_true(next_state):
-			self.solver.step(state.features(), action, reward + self.subgoal_reward, next_state.features(), True, num_steps=1)
+			self.solver.step(state.features(), action, self.subgoal_reward, next_state.features(), True, num_steps=1)
 		elif self.is_init_true(state):
 			self.solver.step(state.features(), action, reward, next_state.features(), next_state.is_terminal(), num_steps=1)
 
@@ -307,7 +307,7 @@ class Option(object):
 
 		if self.is_term_true(s_prime):
 			self.num_successful_updates += 1
-			self.solver.step(s.features(), a, r + self.subgoal_reward, s_prime.features(), True, num_steps=1)
+			self.solver.step(s.features(), a, self.subgoal_reward, s_prime.features(), True, num_steps=1)
 		elif s_prime.is_terminal():
 			print("\rWarning: {} is taking me to the goal state even though its not in its term set\n".format(self.name))
 			self.solver.step(s.features(), a, r, s_prime.features(), True, num_steps=1)
