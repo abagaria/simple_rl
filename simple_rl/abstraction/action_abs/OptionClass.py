@@ -43,7 +43,7 @@ class Option(object):
 
 	def __init__(self, overall_mdp, name, global_solver, buffer_length=20, pretrained=False,
 				 num_subgoal_hits_required=3, subgoal_reward=1., max_steps=20000, seed=0, parent=None, children=[],
-				 classifier_type="ocsvm", enable_timeout=True, timeout=200):
+				 classifier_type="ocsvm", enable_timeout=True, timeout=250):
 		'''
 		Args:
 			overall_mdp (MDP)

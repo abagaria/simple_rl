@@ -14,7 +14,7 @@ class PinballMDP(MDP):
     """ Class for pinball domain. """
 
     def __init__(self, noise=0., episode_length=1000, reward_scale=1000., render=False):
-        self.domain = Pinball(noise=noise, episodeCap=episode_length) #, configuration="/home/akhil/git-repos/rlpy/rlpy/Domains/PinballConfigs/pinball_hard_single.cfg")
+        self.domain = Pinball(noise=noise, episodeCap=episode_length, configuration="/home/akhil/git-repos/rlpy/rlpy/Domains/PinballConfigs/pinball_hard_single.cfg")
         self.render = render
         self.reward_scale = reward_scale
 

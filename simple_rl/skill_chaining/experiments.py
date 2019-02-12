@@ -91,11 +91,11 @@ class SkillChainingExperiments(object):
 
     def run_skill_chaining_with_different_seeds(self):
         # Same buffer length used by SC-agent and transfer learning SC agent
-        buffer_len = 20
+        buffer_len = 40
         subgoal_reward = 10.0
         learning_rate = 1e-4  # 0.1 of the one we usually use
         random_seeds = [0, 20, 123, 4351, 77] # Because I have only tested the init sets for seed=0
-        max_number_of_options = 3
+        max_number_of_options = 7
 
         scores = []
         val_scores = []
@@ -108,7 +108,7 @@ class SkillChainingExperiments(object):
             print("Training skill chaining agent (seed={}, n_options={})".format(random_seed, max_number_of_options))
             print("=" * 80)
 
-            self.mdp = PinballMDP(noise=0.0, episode_length=20000, reward_scale=1000., render=True)
+            self.mdp = PinballMDP(noise=0.0, episode_length=20000, reward_scale=1000., render=False)
             self.state_size = self.mdp.init_state.state_space_size()
             self.num_actions = len(self.mdp.actions)
 

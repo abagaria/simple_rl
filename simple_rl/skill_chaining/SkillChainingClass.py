@@ -24,7 +24,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
     def __init__(self, mdp, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3, max_num_options=4, lr_decay=False,
+                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=5, max_num_options=4, lr_decay=False,
                  enable_option_timeout=True, intra_option_learning=False, seed=0):
         """
         Args:
@@ -270,7 +270,7 @@ class SkillChaining(object):
     def number_of_states_in_term_set(self, untrained_option, trajectory):
         return sum([untrained_option.is_term_true(state) for state in trajectory])
 
-    def skill_chaining(self, num_episodes=151, num_steps=20000):
+    def skill_chaining(self, num_episodes=301, num_steps=20000):
 
         # For logging purposes
         per_episode_scores = []
@@ -332,7 +332,7 @@ class SkillChaining(object):
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}\tDuration: {:.2f} steps\tEpsilon: {:.2f}'.format(episode, np.mean(last_10_scores), np.mean(last_10_durations), self.global_solver.epsilon))
         if episode > 0 and episode % 5 == 0:
-            eval_score = self.trained_forward_pass(verbose=False, render=True)
+            eval_score = self.trained_forward_pass(verbose=False, render=False)
             self.validation_scores.append(eval_score)
             print("\rEpisode {}\tValidation Score: {:.2f}".format(episode, eval_score))
 
@@ -439,10 +439,10 @@ if __name__ == '__main__':
     overall_mdp = construct_pinball_mdp()
     state_space_size = overall_mdp.init_state.state_space_size()
     random_seed = 4351
-    buffer_len = 20
-    sub_reward = 1.
+    buffer_len = 40
+    sub_reward = 10.
     lr = 1e-4
-    max_number_of_options = 3
+    max_number_of_options = 7
     NUM_STEPS_PER_EPISODE = 20000
     solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed, lr=lr,
                       name="GlobalDQN", eps_start=1.0, tensor_log=False, use_double_dqn=True)
