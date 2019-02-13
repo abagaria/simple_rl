@@ -439,7 +439,7 @@ if __name__ == '__main__':
     overall_mdp = construct_pinball_mdp()
     state_space_size = overall_mdp.init_state.state_space_size()
     random_seed = 4351
-    buffer_len = 40
+    buffer_len = 250
     sub_reward = 10.
     lr = 1e-4
     max_number_of_options = 7
