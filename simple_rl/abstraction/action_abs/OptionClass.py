@@ -82,9 +82,6 @@ class Option(object):
 		random.seed(seed)
 		np.random.seed(seed)
 
-		if classifier_type == "bocsvm" and parent is None:
-			raise AssertionError("{}'s parent cannot be none".format(self.name))
-
 		self.solver = DQNAgent(overall_mdp.init_state.state_space_size(), len(overall_mdp.actions), len(overall_mdp.actions),
 							   trained_options=[], seed=self.seed, name=name, use_double_dqn=global_solver.use_ddqn,
 							   lr=global_solver.learning_rate, tensor_log=global_solver.tensor_log,
@@ -105,15 +102,6 @@ class Option(object):
 		self.num_goal_hits = 0
 
 		# Debug member variables
-		self.total_executions = 0
-		self.starting_points = []
-		self.ending_points 	 = []
-		self.num_states_in_replay_buffer = []
-		self.num_learning_updates_dqn = []
-		self.num_times_indirect_update = 0
-		self.num_indirect_updates = []
-		self.policy_refinement_data = []
-
 		self.num_option_updates = 0
 		self.num_successful_updates = 0
 		self.num_unsuccessful_updates = 0
