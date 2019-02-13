@@ -15,7 +15,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import PretrainedOption
 from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
 
 class SkillChainingExperiments(object):
-    def __init__(self, mdp, num_episodes=251, num_instances=1, random_seed=0):
+    def __init__(self, mdp, num_episodes=351, num_instances=1, random_seed=0):
         self.mdp = mdp
         self.num_episodes = num_episodes
         self.num_instances = num_instances

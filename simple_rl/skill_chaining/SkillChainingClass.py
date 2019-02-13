@@ -432,7 +432,7 @@ class SkillChaining(object):
 
 def construct_pinball_mdp():
     from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
-    mdp = PinballMDP(noise=0.0, episode_length=20000, reward_scale=1000., render=True)
+    mdp = PinballMDP(noise=0.0, episode_length=20000, reward_scale=100., render=True)
     return mdp
 
 if __name__ == '__main__':
