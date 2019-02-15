@@ -10,12 +10,12 @@ from copy import deepcopy
 import itertools
 import torch
 from scipy.spatial import distance
+import time
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.tasks.pinball.PinballStateClass import PinballState, PositionalPinballState
-import time
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -43,7 +43,7 @@ class Option(object):
 
 	def __init__(self, overall_mdp, name, global_solver, buffer_length=20, pretrained=False,
 				 num_subgoal_hits_required=3, subgoal_reward=1., max_steps=20000, seed=0, parent=None, children=[],
-				 classifier_type="ocsvm", enable_timeout=True, timeout=250):
+				 classifier_type="ocsvm", enable_timeout=True, timeout=250, initiation_period=7, generate_plots=False):
 		'''
 		Args:
 			overall_mdp (MDP)
@@ -60,6 +60,8 @@ class Option(object):
 			classifier_type (str)
 			enable_timeout (bool)
 			timeout (int)
+			initiation_period (int)
+			generate_plots (bool)
 		'''
 		self.term_flag = False
 		self.name = name
@@ -74,8 +76,9 @@ class Option(object):
 		self.classifier_type = classifier_type
 		self.enable_timeout = enable_timeout
 		self.timeout = timeout if enable_timeout else np.inf
+		self.generate_plots = generate_plots
 
-		self.initiation_period = 7
+		self.initiation_period = initiation_period
 
 		self.option_idx = 0 if self.parent is None else self.parent.option_idx + 1
 
@@ -440,8 +443,9 @@ class Option(object):
 		# Refine the initiation set classifier
 		if len(self.negative_examples) > 0:
 			self.train_two_class_classifier()
-			from simple_rl.skill_chaining.skill_chaining_utils import plot_binary_initiation_set
-			plot_binary_initiation_set(self)
+			if self.generate_plots:
+				from simple_rl.skill_chaining.skill_chaining_utils import plot_binary_initiation_set
+				plot_binary_initiation_set(self)
 
 	def trained_option_execution(self, mdp, outer_step_counter, episodic_budget):
 		state = mdp.cur_state
