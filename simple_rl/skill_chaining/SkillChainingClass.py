@@ -13,6 +13,7 @@ import _pickle as pickle
 import pdb
 import argparse
 import sys
+import os
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
@@ -23,9 +24,9 @@ from simple_rl.skill_chaining.skill_chaining_utils import *
 from simple_rl.skill_chaining.create_pre_trained_options import *
 
 class SkillChaining(object):
-    def __init__(self, mdp, rl_agent, pretrained_options=[],
-                 buffer_length=25, subgoal_reward=5000.0, subgoal_hits=3, max_num_options=4, lr_decay=False,
-                 enable_option_timeout=True, intra_option_learning=False, seed=0):
+    def __init__(self, mdp, rl_agent, pretrained_options=[], buffer_length=25,
+                 subgoal_reward=5000.0, subgoal_hits=3, max_num_options=4, lr_decay=False,
+                 enable_option_timeout=True, intra_option_learning=False, generate_plots=False, log_dir="", seed=0):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -38,6 +39,8 @@ class SkillChaining(object):
             lr_decay (bool): Whether or not to decay the global solver learning rate over time
             enable_option_timeout (bool): whether or not the option times out after some number of steps
             intra_option_learning (bool): whether or not to use intra-option learning while making SMDP updates
+            generate_plots (bool): whether or not to produce plots in this run
+            log_dir (os.path): directory to store all the scores for this run  
             seed (int): We are going to use the same random seed for all the DQN solvers
         """
         self.mdp = mdp
@@ -50,6 +53,8 @@ class SkillChaining(object):
         self.lr_decay = lr_decay
         self.enable_option_timeout = enable_option_timeout
         self.enable_intra_option_learning = intra_option_learning
+        self.generate_plots = generate_plots
+        self.log_dir = log_dir
         self.seed = seed
 
         np.random.seed(seed)
@@ -270,7 +275,7 @@ class SkillChaining(object):
     def number_of_states_in_term_set(self, untrained_option, trajectory):
         return sum([untrained_option.is_term_true(state) for state in trajectory])
 
-    def skill_chaining(self, num_episodes=151, num_steps=20000):
+    def skill_chaining(self, num_episodes, num_steps):
 
         # For logging purposes
         per_episode_scores = []
@@ -306,10 +311,12 @@ class SkillChaining(object):
                     uo_episode_terminated = True
 
                     if self.untrained_option.train(experience_buffer, state_buffer):
-                        if not self.global_solver.tensor_log: render_value_function(self.global_solver, torch.device("cuda"), episode=episode-1000)
-                        if not self.global_solver.tensor_log: plot_one_class_initiation_classifier(self.untrained_option)
+                        if self.generate_plots and not self.global_solver.tensor_log:
+                            render_value_function(self.global_solver, torch.device("cuda"), episode=episode-1000)
+                            plot_one_class_initiation_classifier(self.untrained_option)
                         self._augment_agent_with_new_option(self.untrained_option)
-                        if not self.global_solver.tensor_log: render_value_function(self.global_solver, torch.device("cuda"), episode=episode+1000)
+                        if self.generate_plots and not self.global_solver.tensor_log:
+                            render_value_function(self.global_solver, torch.device("cuda"), episode=episode+1000)
 
                 if self.untrained_option.get_training_phase() == "initiation_done" and self.should_create_more_options():
                     self.create_child_option()
@@ -336,7 +343,7 @@ class SkillChaining(object):
             self.validation_scores.append(eval_score)
             print("\rEpisode {}\tValidation Score: {:.2f}".format(episode, eval_score))
 
-        if not self.global_solver.tensor_log and episode % 10 == 0:
+        if self.generate_plots and not self.global_solver.tensor_log and episode % 10 == 0:
             render_value_function(self.global_solver, torch.device("cuda"), episode=episode)
         for trained_option in self.trained_options:  # type: Option
             self.num_option_executions[trained_option.name].append(episode_option_executions[trained_option.name])
@@ -360,13 +367,20 @@ class SkillChaining(object):
 
     def save_all_scores(self, pretrained, scores, durations):
         print("\rSaving training and validation scores..")
-        with open("sc_pretrained_{}_training_scores.pkl".format(pretrained), "wb+") as _f:
+        training_scores_file_name = "sc_pretrained_{}_training_scores_{}.pkl".format(pretrained, self.seed)
+        training_durations_file_name = "sc_pretrained_{}_training_durations_{}.pkl".format(pretrained, self.seed)
+        validation_scores_file_name = "sc_pretrained_{}_validation_scores_{}.pkl".format(pretrained, self.seed)
+
+        if self.log_dir:
+            training_scores_file_name = os.path.join(self.log_dir, training_scores_file_name)
+            training_durations_file_name = os.path.join(self.log_dir, training_durations_file_name)
+            validation_scores_file_name = os.path.join(self.log_dir, validation_scores_file_name)
+
+        with open(training_scores_file_name, "wb+") as _f:
             pickle.dump(scores, _f)
-
-        with open("sc_pretrained_{}_training_durations.pkl".format(pretrained), "wb+") as _f:
+        with open(training_durations_file_name, "wb+") as _f:
             pickle.dump(durations, _f)
-
-        with open("sc_pretrained_{}_validation_scores.pkl".format(pretrained), "wb+") as _f:
+        with open(validation_scores_file_name, "wb+") as _f:
             pickle.dump(self.validation_scores, _f)
 
     def perform_experiments(self):
@@ -430,26 +444,41 @@ class SkillChaining(object):
 
         return overall_reward
 
-def construct_pinball_mdp():
+def create_log_dir(experiment_name):
+    path = os.path.join(os.getcwd(), experiment_name)
+    try:
+        os.mkdir(path)
+    except OSError:
+        print("Creation of the directory %s failed" % path)
+    else:
+        print("Successfully created the directory %s " % path)
+    return path
+
+def construct_pinball_mdp(episode_length):
     from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
-    mdp = PinballMDP(noise=0.0, episode_length=20000, reward_scale=1000., render=True)
+    mdp = PinballMDP(noise=0.0, episode_length=episode_length, reward_scale=1000., render=True)
     return mdp
 
 if __name__ == '__main__':
-    overall_mdp = construct_pinball_mdp()
-    state_space_size = overall_mdp.init_state.state_space_size()
-    random_seed = 4351
-    buffer_len = 20
-    sub_reward = 1.
-    lr = 1e-4
-    max_number_of_options = 3
-    NUM_STEPS_PER_EPISODE = 20000
-    solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed, lr=lr,
-                      name="GlobalDQN", eps_start=1.0, tensor_log=False, use_double_dqn=True)
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
+    parser.add_argument("--seed", type=int, help="Random seed for this run (default=0)", default=0)
     args = parser.parse_args()
+
+    EXPERIMENT_NAME = "medium_pinball_sg_10"
+    NUM_EPISODES = 1
+    NUM_STEPS_PER_EPISODE = 10000
+
+    overall_mdp = construct_pinball_mdp(NUM_STEPS_PER_EPISODE)
+    state_space_size = overall_mdp.init_state.state_space_size()
+    random_seed = args.seed
+    buffer_len = 20
+    sub_reward = 10.
+    lr = 1e-4
+    max_number_of_options = 3
+    logdir = create_log_dir(EXPERIMENT_NAME)
+    solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed, lr=lr,
+                      name="GlobalDQN", eps_start=1.0, tensor_log=False, use_double_dqn=True)
 
     if args.pretrained:
         loader = PretrainedOptionsLoader(overall_mdp, solver, buffer_len, num_subgoal_hits_required=3, subgoal_reward=sub_reward,
@@ -460,8 +489,9 @@ if __name__ == '__main__':
         print("Running skill chaining with pretrained options: {}".format(pretrained_options))
         chainer = SkillChaining(overall_mdp, rl_agent=solver, buffer_length=buffer_len,
                                 seed=random_seed, subgoal_reward=sub_reward, max_num_options=0,
-                                lr_decay=False, pretrained_options=pretrained_options)
-        pretrained_episodic_scores, pretrained_episodic_durations = chainer.skill_chaining()
+                                lr_decay=False, pretrained_options=pretrained_options,
+                                log_dir=logdir)
+        pretrained_episodic_scores, pretrained_episodic_durations = chainer.skill_chaining(NUM_EPISODES, NUM_STEPS_PER_EPISODE)
         chainer.save_all_scores(args.pretrained, pretrained_episodic_scores, pretrained_episodic_durations)
     else:
         print("Training skill chaining agent from scratch with a buffer length of {} and subgoal reward {}".format(buffer_len, sub_reward))
@@ -469,8 +499,10 @@ if __name__ == '__main__':
         print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
         chainer = SkillChaining(overall_mdp, rl_agent=solver, buffer_length=buffer_len,
                                 seed=random_seed, subgoal_reward=sub_reward, max_num_options=max_number_of_options,
-                                lr_decay=False)
-        episodic_scores, episodic_durations = chainer.skill_chaining()
+                                lr_decay=False, log_dir=logdir)
+        episodic_scores, episodic_durations = chainer.skill_chaining(NUM_EPISODES, NUM_STEPS_PER_EPISODE)
+
+        # Log performance metrics
         chainer.save_all_dqns()
         chainer.save_all_initiation_classifiers()
         chainer.perform_experiments()
