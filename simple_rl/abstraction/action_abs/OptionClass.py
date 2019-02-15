@@ -409,7 +409,7 @@ class Option(object):
 			visited_states.append(state)
 
 			if self.get_training_phase() == "initiation":
-				self.refine_initiation_set_classifier(visited_states, start_state, state, num_steps)
+				self.refine_initiation_set_classifier(visited_states, start_state, state, num_steps, step_number)
 
 			if self.solver.tensor_log:
 				self.solver.writer.add_scalar("ExecutionLength", len(option_transitions), self.num_executions)
@@ -418,7 +418,7 @@ class Option(object):
 
 		raise Warning("Wanted to execute {}, but initiation condition not met".format(self))
 
-	def refine_initiation_set_classifier(self, visited_states, start_state, final_state, num_steps):
+	def refine_initiation_set_classifier(self, visited_states, start_state, final_state, num_steps, outer_step_number):
 		if self.is_term_true(final_state):  # success
 			self.num_goal_hits += 1
 			if not self.pretrained:
@@ -433,8 +433,9 @@ class Option(object):
 				negative_examples.append(parent_sampled_negative)
 			self.negative_examples.append(negative_examples)
 		else:
-			assert final_state.is_terminal(), "Hit else case, but {} was not terminal".format(final_state)
-			print("\rWarning: Ended up in goal state when {} was not terminal {}".format(self.name, final_state))
+			assert final_state.is_terminal() or outer_step_number == self.max_steps, "Hit else case, but {} was not terminal".format(final_state)
+			if outer_step_number != self.max_steps:
+				print("\rWarning: Ended up in goal state when {} was not terminal {}".format(self.name, final_state))
 
 		# Refine the initiation set classifier
 		if len(self.negative_examples) > 0:
