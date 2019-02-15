@@ -41,7 +41,7 @@ class Experience(object):
 
 class Option(object):
 
-	def __init__(self, overall_mdp, name, global_solver, buffer_length=250, pretrained=False,
+	def __init__(self, overall_mdp, name, global_solver, buffer_length=20, pretrained=False,
 				 num_subgoal_hits_required=3, subgoal_reward=1., max_steps=20000, seed=0, parent=None, children=[],
 				 classifier_type="ocsvm", enable_timeout=True, timeout=250):
 		'''
@@ -222,10 +222,10 @@ class Option(object):
 		# Convert the high dimensional states to positional states for ease of learning the initiation classifier
 		positional_states = [state.convert_to_positional_state() for state in states]
 
-		# last_state = positional_states[-1]
-		# filtered_positional_states = list(filter(lambda s: np.linalg.norm(s.features() - last_state.features()) < 0.3, positional_states))
+		last_state = positional_states[-1]
+		filtered_positional_states = list(filter(lambda s: np.linalg.norm(s.features() - last_state.features()) < 0.3, positional_states))
 
-		self.positive_examples.append(positional_states)
+		self.positive_examples.append(filtered_positional_states)
 
 	def add_experience_buffer(self, experience_queue):
 		"""
