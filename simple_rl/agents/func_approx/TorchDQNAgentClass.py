@@ -46,7 +46,7 @@ class GlobalEpsilonSchedule(EpsilonSchedule):
     def __init__(self, eps_start):
         EPS_END = 0.05
         EPS_EXPONENTIAL_DECAY = 0.999
-        EPS_LINEAR_DECAY_LENGTH = 500000
+        EPS_LINEAR_DECAY_LENGTH = 400000
         super(GlobalEpsilonSchedule, self).__init__(eps_start, EPS_END, EPS_EXPONENTIAL_DECAY, EPS_LINEAR_DECAY_LENGTH)
 
     def update_epsilon(self, current_epsilon, num_executions):

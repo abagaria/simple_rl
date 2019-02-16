@@ -465,9 +465,9 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, help="Random seed for this run (default=0)", default=0)
     args = parser.parse_args()
 
-    EXPERIMENT_NAME = "medium_pinball_sg_10"
+    EXPERIMENT_NAME = "hard_pinball_sg_10"
     NUM_EPISODES = 301
-    NUM_STEPS_PER_EPISODE = 10000
+    NUM_STEPS_PER_EPISODE = 20000
 
     overall_mdp = construct_pinball_mdp(NUM_STEPS_PER_EPISODE)
     state_space_size = overall_mdp.init_state.state_space_size()
@@ -477,7 +477,6 @@ if __name__ == '__main__':
     sub_reward = 10.
     lr = 1e-4
     max_number_of_options = 7
-    NUM_STEPS_PER_EPISODE = 20000
     logdir = create_log_dir(EXPERIMENT_NAME)
 
     solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed, lr=lr,
