@@ -338,18 +338,18 @@ class SkillChaining(object):
         print('\rEpisode {}\tAverage Score: {:.2f}\tDuration: {:.2f} steps\tEpsilon: {:.2f}'.format(episode, np.mean(last_10_scores), np.mean(last_10_durations), self.global_solver.epsilon), end="")
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}\tDuration: {:.2f} steps\tEpsilon: {:.2f}'.format(episode, np.mean(last_10_scores), np.mean(last_10_durations), self.global_solver.epsilon))
-        if episode > 0 and episode % 5 == 0:
+        if episode > 0 and episode % 100 == 0:
             eval_score = self.trained_forward_pass(verbose=False, render=False)
             self.validation_scores.append(eval_score)
             print("\rEpisode {}\tValidation Score: {:.2f}".format(episode, eval_score))
 
-        if self.generate_plots and not self.global_solver.tensor_log and episode % 10 == 0:
+        if self.generate_plots and not self.global_solver.tensor_log and episode % 100 == 0:
             render_value_function(self.global_solver, torch.device("cuda"), episode=episode)
         for trained_option in self.trained_options:  # type: Option
             self.num_option_executions[trained_option.name].append(episode_option_executions[trained_option.name])
             if self.global_solver.tensor_log:
                 self.global_solver.writer.add_scalar("{}_executions".format(trained_option.name), episode_option_executions[trained_option.name], episode)
-            # if not self.global_solver.tensor_log and episode % 5 == 0:
+            # if not self.global_solver.tensor_log and episode % 100 == 0:
             #     render_value_function(trained_option.solver, torch.device("cuda"), episode=episode)
         return False
 
@@ -466,17 +466,18 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     EXPERIMENT_NAME = "hard_pinball_sg_10"
-    NUM_EPISODES = 301
-    NUM_STEPS_PER_EPISODE = 20000
+    NUM_EPISODES = 3000
+    NUM_STEPS_PER_EPISODE = 1000
 
-    overall_mdp = construct_pinball_mdp(NUM_STEPS_PER_EPISODE)
+    # overall_mdp = construct_pinball_mdp(NUM_STEPS_PER_EPISODE)
+    overall_mdp = LunarLanderMDP(render=False)
     state_space_size = overall_mdp.init_state.state_space_size()
 
     random_seed = args.seed
-    buffer_len = 40
+    buffer_len = 190
     sub_reward = 10.
     lr = 1e-4
-    max_number_of_options = 7
+    max_number_of_options = 3
     logdir = create_log_dir(EXPERIMENT_NAME)
 
     solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed, lr=lr,
@@ -498,10 +499,10 @@ if __name__ == '__main__':
     else:
         print("Training skill chaining agent from scratch with a buffer length of {} and subgoal reward {}".format(buffer_len, sub_reward))
         print("MDP InitState = ", overall_mdp.init_state)
-        print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
+        # print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
         chainer = SkillChaining(overall_mdp, rl_agent=solver, buffer_length=buffer_len,
                                 seed=random_seed, subgoal_reward=sub_reward, max_num_options=max_number_of_options,
-                                lr_decay=False, log_dir=logdir)
+                                lr_decay=False, log_dir=logdir, generate_plots=True)
         episodic_scores, episodic_durations = chainer.skill_chaining(NUM_EPISODES, NUM_STEPS_PER_EPISODE)
 
         # Log performance metrics

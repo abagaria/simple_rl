@@ -10,8 +10,7 @@ from scipy.misc import imread
 import pdb
 
 # Other imports.
-from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
-from simple_rl.tasks.pinball.PinballStateClass import PinballState
+from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
 
 
 def plot_trajectory(trajectory, show=True, color='k', with_experiences=False, marker="o"):
@@ -53,7 +52,8 @@ def make_meshgrid(x, y, h=.02):
 
 
 def plot_contours(ax, option, xx, yy, **params):
-    Z = option.batched_is_init_true(np.c_[xx.ravel(), yy.ravel()])
+    _, _, vxx, vyy, tt, ttdot = get_6_dimensional_grid()
+    Z = option.batched_is_init_true(np.c_[xx.ravel(), yy.ravel(), vxx.ravel(), vyy.ravel(), tt.ravel(), ttdot.ravel()])
     Z = Z.reshape(xx.shape)
     out = ax.contourf(xx, yy, Z, **params)
     return out
@@ -78,6 +78,20 @@ def plot_initiation_set(option):
     plt.savefig("{}_initiation_set_{}.png".format(option.name, time.time()))
     plt.close()
 
+def get_6_dimensional_grid():
+    x = np.arange(-1., 1.1, 0.1)
+    y = np.arange(0, 1.2, 0.1)
+    vx = np.arange(-1.5, 1.6, 0.5)
+    vy = np.arange(-1.5, 1.6, 0.5)
+    theta = np.arange(-1., 1.6, 0.5)
+    theta_dot = np.arange(-1., 1.1, 0.5)
+    return np.meshgrid(x, y, vx, vy, theta, theta_dot)
+
+def make_2d_meshgrid():
+    x = np.arange(-1., 1.1, 0.1)
+    y = np.arange(0, 1.2, 0.1)
+    return np.meshgrid(x, y)
+
 def plot_binary_initiation_set(option):
     fig, sub = plt.subplots(1, 1)
     X, Y = get_init_data_and_labels(option)
@@ -85,11 +99,10 @@ def plot_binary_initiation_set(option):
     xx, yy = make_meshgrid(X0, X1)
     plot_contours(sub, option, xx, yy, cmap=plt.cm.coolwarm, alpha=0.5)
     plt.scatter(X0, X1, c=Y, cmap=plt.cm.coolwarm, s=40, edgecolors='k')
-    plt.xlim((0., 1.))
-    plt.ylim((0., 1.))
-    plt.gca().invert_yaxis()
+    plt.xlim((-1., 1.))
+    plt.ylim((-0.25, 1.75))
 
-    background_image = imread("pinball_domain.png")
+    background_image = imread("lunar_lander.png")
     plt.imshow(background_image, zorder=0, alpha=0.5, extent=[0., 1., 1., 0.])
 
     plt.savefig("{}_initiation_set_{}.png".format(option.name, time.time()))
@@ -99,18 +112,21 @@ def get_one_class_init_data(option):
     positive_feature_matrix = option._construct_feature_matrix(option.positive_examples)
     return positive_feature_matrix
 
-def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
+def plot_one_class_initiation_classifier(option, is_pinball_domain=False):
     trained_classifier = option.initiation_classifier
     classifier_name = "OCSVM"
     legend = {}
-    background_image = imread("pinball_domain.png")
+
+    background_image = imread("lunar_lander.png")
 
     plt.figure(figsize=(8.0, 5.0))
     X = get_one_class_init_data(option)
     X0, X1 = X[:, 0], X[:, 1]
-    xx, yy = make_meshgrid(X0, X1)
-    Z1 = trained_classifier.decision_function(np.c_[xx.ravel(), yy.ravel()])
+    xx, yy, vxx, vyy, tt, ttdot = get_6_dimensional_grid()
+    Z1 = trained_classifier.decision_function(np.c_[xx.ravel(), yy.ravel(), vxx.ravel(), vyy.ravel(), tt.ravel(), ttdot.ravel()])
     Z1 = Z1.reshape(xx.shape)
+    Z1 = np.mean(Z1, axis=(2, 3, 4, 5))
+    xx, yy = make_2d_meshgrid()
     legend[classifier_name] = plt.contour(xx, yy, Z1, levels=[0], linewidths=2, colors="m")
 
     # plt.plot(X0, X1, '.')
@@ -121,7 +137,7 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=True):
 
     center_point = option.get_center_of_initiation_data(option.positive_examples)
     plt.scatter(center_point[0], center_point[1], s=50, marker="x", c="black", zorder=1)
-    plt.imshow(background_image, zorder=0, alpha=0.5, extent=[0., 1., 1., 0.])
+    plt.imshow(background_image, zorder=0, alpha=0.5, extent=[-1., 1., -0.25, 1.75])
 
     if is_pinball_domain:
         plt.xlim((0., 1.))
@@ -209,22 +225,39 @@ def get_qvalue(agent, state, device):
     return action_values
 
 def get_values(solver, device):
-    values = []
-    for x in np.arange(0., 1.1, 0.1):
-        for y in np.arange(0., 1.1, 0.1):
-            v = []
-            for vx in [-1., -0.5, 0., 0.5, 1.]:
-                for vy in [-1., -0.5, 0., 0.5, 1.]:
-                    s = PinballState(x, y, vx, vy)
-                    v.append(solver.get_value(s.features()))
-            values.append(np.mean(v))
-    return values
+    def get_8_dimensional_grid():
+        x = np.arange(-1., 1.1, 0.1)
+        y = np.arange(0, 1.2, 0.1)
+        vx = np.arange(-1.5, 1.6, 0.5)
+        vy = np.arange(-1.5, 1.6, 0.5)
+        theta = np.arange(-1., 1.6, 0.5)
+        theta_dot = np.arange(-1., 1.1, 0.5)
+        left_leg = np.array([0, 1])
+        right_leg = np.array([0, 1])
+        return np.meshgrid(x, y, vx, vy, theta, theta_dot, left_leg, right_leg)
+
+    xx, yy, vxx, vyy, tt, ttdot, lll, rll = get_8_dimensional_grid()
+    in_ = np.c_[xx.ravel(), yy.ravel(), vxx.ravel(), vyy.ravel(), tt.ravel(), ttdot.ravel(), lll.ravel(), rll.ravel()]
+    tensor = torch.from_numpy(in_).float()
+
+    # Query the solver for the q_values of the 8-dimensional grid
+    q = solver.get_batched_qvalues(tensor)
+    new_shape = *xx.shape, q.shape[-1]
+    q = q.reshape(new_shape)
+
+    # Average over the velocity and tilt dimensions
+    q_xy = torch.mean(q, dim=[2, 3, 4, 5, 6, 7])
+
+    # Get V(s) from Q(s, :)
+    v_xy = torch.max(q_xy, dim=-1)[0]
+
+    return v_xy.reshape(1, -1)
 
 def get_grid_states():
     ss = []
-    for x in np.arange(0., 1.1, 0.1):
-        for y in np.arange(0., 1.1, 0.1):
-            s = PinballState(x, y, 0, 0)
+    for x in np.arange(-1., 1.1, 0.1):
+        for y in np.arange(0, 1.2, 0.1):
+            s = LunarLanderState(x, y, 0, 0, 0, 0, 0, 0, False, False)
             ss.append(s)
     return ss
 
@@ -233,30 +266,16 @@ def render_value_function(solver, device, episode=None, show=False):
     values = get_values(solver, device)
     x = np.array([state.x for state in states])
     y = np.array([state.y for state in states])
-    xi, yi = np.linspace(x.min(), x.max(), 1000), np.linspace(y.min(), y.max(), 1000)
+    xi, yi = np.arange(-1., 1.1, 0.1), np.arange(0, 1.2, 0.1)
     xx, yy = np.meshgrid(xi, yi)
     rbf = scipy.interpolate.Rbf(x, y, values, function="linear")
     zz = rbf(xx, yy)
-    plt.imshow(zz, vmin=min(values), vmax=max(values), extent=[x.min(), x.max(), y.min(), y.max()])
+    plt.imshow(zz, vmin=values.min().item(), vmax=values.max().item(), extent=[x.min(), x.max(), y.min(), y.max()])
     plt.colorbar()
     # plt.gca().invert_yaxis()
     if show: plt.show()
     name = solver.name if episode is None else solver.name + "_{}".format(episode)
     plt.savefig("{}_value_function.png".format(name))
-    plt.close()
-
-def sample_termination_set_classifier(option):
-    plt.figure(figsize=(8., 5.))
-    y = np.arange(1.5, -0.2, -0.1)
-    x = np.zeros_like(y)
-    for x0, y0 in zip(x, y):
-        state = PositionalLunarLanderState(x0, y0)
-        color = 'b' if option.is_term_true(state) == 1 else 'k'
-        plt.scatter(x0, y0, c=color)
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.title("{}: sampled termination set (blue: in term)".format(option.name))
-    plt.savefig("{}_sampled_termination_set.png".format(option.name))
     plt.close()
 
 def visualize_option_policy(option):

@@ -22,7 +22,7 @@ from simple_rl.agents.AgentClass import Agent
 from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
 
 ## Hyperparameters
-BUFFER_SIZE = int(1e6)  # replay buffer size
+BUFFER_SIZE = int(1e7)  # replay buffer size
 BATCH_SIZE = 64  # minibatch size
 GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
@@ -112,11 +112,11 @@ class QNetwork(nn.Module):
         for local_param, global_param in zip(self.fc2.parameters(), bigger_net.fc2.parameters()):
             local_param.data.copy_(global_param)
 
-        num_original_actions = 5 # TODO: Assuming that we are in pinball domain
+        num_original_actions = 4 # TODO: Assuming that we are in pinball domain
         self.fc3.weight.data.copy_(bigger_net.fc3.weight[:num_original_actions, :])
         self.fc3.bias.data.copy_(bigger_net.fc3.bias[:num_original_actions])
 
-        assert self.fc3.out_features == 5, "Expected Pinball with 5 actions, not {} ".format(self.fc3.out_features)
+        assert self.fc3.out_features == 4, "Expected LunarLander with 4 actions, not {} ".format(self.fc3.out_features)
 
     def initialize_with_smaller_network(self, smaller_net, init_q_value):
         """
@@ -213,7 +213,7 @@ class DQNAgent(Agent):
         Interface to the DQN agent: state can be output of env.step() and returned action can be input into next step().
         Args:
             state (np.array): numpy array state from Gym env
-            train_mode (bool): if training, use the internal epsilon. If evaluating, set epsilon to 0.
+            train_mode (bool): if training, use the internal epsilon. If evaluating, set epsilon to min epsilon
 
         Returns:
             action (int): integer representing the action to take in the Gym env
@@ -330,13 +330,13 @@ class DQNAgent(Agent):
             states = states.cpu().data.numpy()
             action_values = action_values.cpu().data.numpy()
 
-            positional_states = states[:, :2]
+            # Lunar lander: init sets are over the continuous state variables only
+            continuous_states = states[:, :-2]
 
             # TODO: Change this to batched_is_init_true
             for idx, option in enumerate(self.trained_options): # type: Option
-                # inits = option.initiation_classifier.predict(positional_states)
-                inits = option.batched_is_init_true(positional_states)
-                terms = np.zeros(inits.shape) if option.parent is None else option.parent.batched_is_init_true(positional_states)
+                inits = option.batched_is_init_true(continuous_states)
+                terms = np.zeros(inits.shape) if option.parent is None else option.parent.batched_is_init_true(continuous_states)
                 action_values[(inits != 1) | (terms == 1), idx + self.num_original_actions] = np.min(action_values) - 1.
 
             # Move the q-values back the GPU
@@ -542,8 +542,8 @@ def train(agent, mdp, episodes, steps):
         print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)), end="")
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)))
-        if episode % 5 == 0:
-            render_value_function(agent, device, episode=episode)
+        # if episode % 5 == 0:
+        #     render_value_function(agent, device, episode=episode)
     return per_episode_scores
 
 def test_forward_pass(dqn_agent, mdp):

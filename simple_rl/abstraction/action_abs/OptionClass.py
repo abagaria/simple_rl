@@ -15,7 +15,7 @@ import time
 # Other imports.
 from simple_rl.mdp.StateClass import State
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
-from simple_rl.tasks.pinball.PinballStateClass import PinballState, PositionalPinballState
+from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState, ContinuousLunarLanderState
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -140,45 +140,47 @@ class Option(object):
 		return not self == other
 
 	@staticmethod
-	def _get_positional_state(ground_state):
-		if isinstance(ground_state, PositionalPinballState):
+	def _get_continuous_state(ground_state):
+		if isinstance(ground_state, ContinuousLunarLanderState):
 			return ground_state
-		if isinstance(ground_state, PinballState):
-			return ground_state.convert_to_positional_state()
+		if isinstance(ground_state, LunarLanderState):
+			return ground_state.convert_to_continuous_state()
 		elif isinstance(ground_state, np.ndarray):
-			return PositionalPinballState(ground_state[0], ground_state[1])
+			return ContinuousLunarLanderState(ground_state[0], ground_state[1], ground_state[2],
+											  ground_state[3], ground_state[4], ground_state[5])
 		raise ValueError("Got state of type {}".format(type(ground_state)))
 
 	def distance_to_closest_positive_example(self, state):
-		XA = state.get_position()
+		assert isinstance(state, ContinuousLunarLanderState), "Got {}".format(state)
+		XA = state.features()
 		XB = self._construct_feature_matrix(self.positive_examples)
 		distances = distance.cdist(XA[None, ...], XB, "euclidean")
 		return np.min(distances)
 
-	def batched_is_init_true(self, positional_state_matrix):
-		assert positional_state_matrix.shape[1] == 2, "Expected columns to correspond to x, y positions"
+	def batched_is_init_true(self, continuous_state_matrix):
+		assert continuous_state_matrix.shape[1] == 6, "Expected columns to correspond to x, y, xdot, ydot, theta, tdot"
 		if self.classifier_type == "tcsvm":
-			svm_predictions = self.initiation_classifier.predict(positional_state_matrix)
+			svm_predictions = self.initiation_classifier.predict(continuous_state_matrix)
 
 			positive_example_matrix = self._construct_feature_matrix(self.positive_examples)
-			distance_matrix = distance.cdist(positional_state_matrix, positive_example_matrix, "euclidean")
+			distance_matrix = distance.cdist(continuous_state_matrix, positive_example_matrix, "euclidean")
 			closest_distances = np.min(distance_matrix, axis=1)
 			distance_predictions = closest_distances < 0.1
 
 			predictions = np.logical_and(svm_predictions, distance_predictions)
 			return predictions
 		if self.classifier_type == "ocsvm":
-			return self.initiation_classifier.predict(positional_state_matrix)
+			return self.initiation_classifier.predict(continuous_state_matrix)
 		raise NotImplementedError("Classifier type {} not supported".format(self.classifier_type))
 
 	def is_init_true(self, ground_state):
-		positional_state = self._get_positional_state(ground_state)
-		svm_decision = self.initiation_classifier.predict([positional_state.features()])[0] == 1
+		continuous_state = self._get_continuous_state(ground_state)
+		svm_decision = self.initiation_classifier.predict([continuous_state.features()])[0] == 1
 
 		if self.classifier_type == "ocsvm":
 			return svm_decision
 		if self.classifier_type == "tcsvm":
-			dist = self.distance_to_closest_positive_example(positional_state)
+			dist = self.distance_to_closest_positive_example(continuous_state)
 			return svm_decision and dist < 0.1
 		raise NotImplementedError("Classifier type {} not supported".format(self.classifier_type))
 
@@ -191,8 +193,8 @@ class Option(object):
 
 		# If option does not have a parent, it must be the goal option
 		assert self.name == "overall_goal_policy", "{}".format(self.name)
-		positional_state = self._get_positional_state(ground_state)
-		return self.overall_mdp.is_goal_state(positional_state)
+		continuous_state = self._get_continuous_state(ground_state)
+		return self.overall_mdp.is_goal_state(continuous_state)
 
 	def get_final_positive_examples(self):
 		positive_trajectories = self.positive_examples
@@ -222,13 +224,10 @@ class Option(object):
 		assert type(states_queue) == deque, "Expected initiation experience sample to be a queue"
 		states = list(states_queue)
 
-		# Convert the high dimensional states to positional states for ease of learning the initiation classifier
-		positional_states = [state.convert_to_positional_state() for state in states]
+		# Convert the high dimensional states to continuous subset for ease of learning the initiation classifier
+		continuous_states = [state.convert_to_continuous_state() for state in states]
 
-		last_state = positional_states[-1]
-		filtered_positional_states = list(filter(lambda s: np.linalg.norm(s.features() - last_state.features()) < 0.3, positional_states))
-
-		self.positive_examples.append(filtered_positional_states)
+		self.positive_examples.append(continuous_states)
 
 	def add_experience_buffer(self, experience_queue):
 		"""
@@ -426,11 +425,11 @@ class Option(object):
 			self.num_goal_hits += 1
 			if not self.pretrained:
 				positive_states = [start_state] + visited_states[-self.buffer_length:]
-				positive_positional_states = list(map(lambda s: s.convert_to_positional_state(), positive_states))
-				self.positive_examples.append(positive_positional_states)
+				positive_continuous_states = list(map(lambda s: s.convert_to_continuous_state(), positive_states))
+				self.positive_examples.append(positive_continuous_states)
 
 		elif num_steps == self.timeout:
-			negative_examples = [start_state.convert_to_positional_state()]
+			negative_examples = [start_state.convert_to_continuous_state()]
 			if self.parent is not None:
 				parent_sampled_negative = random.choice(self.parent.get_final_positive_examples())
 				negative_examples.append(parent_sampled_negative)
@@ -461,17 +460,23 @@ class Option(object):
 		return score, state, step_number
 
 	def visualize_learned_policy(self, mdp, num_times=5):
+		def sample_points_inside(option):
+			initiation_states = list(itertools.chain.from_iterable(option.positive_examples))
+			return random.sample(initiation_states)
+
+		NO_OP = 0
+
 		for _ in range(num_times):
-			positional_state = self.sample_points_inside(self.initiation_classifier, num_points_to_sample=1)
-			state = PinballState(positional_state[0][0], positional_state[0][1], 0, 0)
+			continuous_state = sample_points_inside(self)
+			state = LunarLanderState(*tuple(continuous_state.features()), left_leg_on_ground=0, right_leg_on_ground=0)
 			mdp.render = True
 			mdp.cur_state = state
 			mdp.domain.state = state.features()
-			mdp.execute_agent_action(4) # noop
-			mdp.execute_agent_action(4) # noop
+			mdp.execute_agent_action(NO_OP) # noop
+			mdp.execute_agent_action(NO_OP) # noop
 			time.sleep(0.3)
 			if self.is_init_true(state) and not self.is_term_true(state):
-				score, next_state, option_num_steps = self.trained_option_execution(mdp, 0, 2000)
+				score, next_state, option_num_steps = self.trained_option_execution(mdp, 0, episodic_budget=1000)
 				print("Success" if self.is_term_true(next_state) else "Failure")
 			elif not self.is_init_true(state):
 				print("{} not in {}'s initiation set".format(state, self.name))

@@ -6,8 +6,9 @@ import numpy as np
 class State(object):
     ''' Abstract State class '''
 
-    def __init__(self, data=[], is_terminal=False):
+    def __init__(self, data=[], is_goal_state=False, is_terminal=False):
         self.data = data
+        self._is_goal_state = is_goal_state
         self._is_terminal = is_terminal
 
     def features(self):
