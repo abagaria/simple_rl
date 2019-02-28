@@ -170,7 +170,7 @@ class DQNAgent(Agent):
         self.optimizer = optim.Adam(self.policy_network.parameters(), lr=lr)
 
         # Replay memory
-        buffer_size = BUFFER_SIZE if "global" not in name.lower() else 5 * BUFFER_SIZE
+        buffer_size = BUFFER_SIZE if "global" not in name.lower() else 10 * BUFFER_SIZE
         self.replay_buffer = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed)
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0

@@ -467,7 +467,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     EXPERIMENT_NAME = "hard_pinball_sg_10"
-    NUM_EPISODES = 4000
+    NUM_EPISODES = 10000
     NUM_STEPS_PER_EPISODE = 1000
 
     # overall_mdp = construct_pinball_mdp(NUM_STEPS_PER_EPISODE)
