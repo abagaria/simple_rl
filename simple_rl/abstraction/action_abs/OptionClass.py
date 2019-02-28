@@ -1,6 +1,6 @@
 # Python imports.
 from __future__ import print_function
-from collections import defaultdict, deque
+from collections import defaultdict
 import matplotlib.pyplot as plt
 import random
 from sklearn import svm
@@ -147,7 +147,8 @@ class Option(object):
 			return ground_state.convert_to_continuous_state()
 		elif isinstance(ground_state, np.ndarray):
 			return ContinuousLunarLanderState(ground_state[0], ground_state[1], ground_state[2],
-											  ground_state[3], ground_state[4], ground_state[5])
+											  ground_state[3], ground_state[4], ground_state[5],
+											  is_goal_state=False)
 		raise ValueError("Got state of type {}".format(type(ground_state)))
 
 	def distance_to_closest_positive_example(self, state):
@@ -215,17 +216,19 @@ class Option(object):
 			return "initiation_done"
 		return "trained"
 
-	def add_initiation_experience(self, states_queue):
+	def add_initiation_experience(self, states):
 		"""
 		SkillChaining class will give us a queue of states that correspond to its most recently successful experience.
 		Args:
-			states_queue (deque)
+			states (list)
 		"""
-		assert type(states_queue) == deque, "Expected initiation experience sample to be a queue"
-		states = list(states_queue)
+		assert type(states) == list, "Expected initiation experience sample to be a queue"
+
+		starting_idx = int(len(states) // 50)
+		segmented_states = states[starting_idx:]
 
 		# Convert the high dimensional states to continuous subset for ease of learning the initiation classifier
-		continuous_states = [state.convert_to_continuous_state() for state in states]
+		continuous_states = [state.convert_to_continuous_state() for state in segmented_states]
 
 		self.positive_examples.append(continuous_states)
 
@@ -233,10 +236,14 @@ class Option(object):
 		"""
 		Skill chaining class will give us a queue of (sars') tuples that correspond to its most recently successful experience.
 		Args:
-			experience_queue (deque)
+			experience_queue (list)
 		"""
-		assert type(experience_queue) == deque, "Expected initiation experience sample to be a queue"
-		experiences = [Experience(*exp) for exp in experience_queue]
+		assert type(experience_queue) == list, "Expected initiation experience sample to be a list"
+
+		starting_idx = int(len(experience_queue) // 50)
+		segmented_experiences = experience_queue[starting_idx:]
+
+		experiences = [Experience(*exp) for exp in segmented_experiences]
 		self.experience_buffer.append(experiences)
 
 	@staticmethod
@@ -340,8 +347,8 @@ class Option(object):
 		"""
 		Called every time the agent hits the current option's termination set.
 		Args:
-			experience_buffer (deque)
-			state_buffer (deque)
+			experience_buffer (list)
+			state_buffer (list)
 
 		Returns:
 			trained (bool): whether or not we actually trained this option
@@ -435,9 +442,8 @@ class Option(object):
 				negative_examples.append(parent_sampled_negative)
 			self.negative_examples.append(negative_examples)
 		else:
-			assert final_state.is_terminal() or outer_step_number == self.max_steps, "Hit else case, but {} was not terminal".format(final_state)
-			if outer_step_number != self.max_steps:
-				print("\rWarning: Ended up in goal state when {} was not terminal {}".format(self.name, final_state))
+			assert final_state.is_terminal() or outer_step_number == self.max_steps,\
+				"Hit else case, but {} was not terminal".format(final_state)
 
 		# Refine the initiation set classifier
 		if len(self.negative_examples) > 0:

@@ -22,7 +22,7 @@ from simple_rl.agents.AgentClass import Agent
 from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
 
 ## Hyperparameters
-BUFFER_SIZE = int(1e7)  # replay buffer size
+BUFFER_SIZE = int(1e6)  # replay buffer size
 BATCH_SIZE = 64  # minibatch size
 GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
@@ -167,14 +167,10 @@ class DQNAgent(Agent):
         self.policy_network = QNetwork(state_size, action_size, seed).to(device)
         self.target_network = QNetwork(state_size, action_size, seed).to(device)
 
-        # if "global" in name.lower():
-        #     self.optimizer = optim.Adam(self.policy_network.parameters(), lr=LR)
-        # else:
-        #     self.optimizer = optim.Adam(self.policy_network.parameters(), lr=LR)
         self.optimizer = optim.Adam(self.policy_network.parameters(), lr=lr)
 
-
         # Replay memory
+        buffer_size = BUFFER_SIZE if "global" not in name.lower() else 5 * BUFFER_SIZE
         self.replay_buffer = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed)
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
@@ -195,7 +191,8 @@ class DQNAgent(Agent):
         if self.tensor_log:
             self.writer = SummaryWriter(name)
 
-        print("\nCreating {} with lr={} and ddqn={}\n".format(name, self.learning_rate, self.use_ddqn))
+        print("\nCreating {} with lr={} and ddqn={} buffer_sz={}\n".format(name, self.learning_rate,
+                                                                           self.use_ddqn, buffer_size))
 
         Agent.__init__(self, name, range(action_size), GAMMA)
 
@@ -227,9 +224,24 @@ class DQNAgent(Agent):
             action_values = self.policy_network(state)
         self.policy_network.train()
 
-        # Argmax only over actions that can be implemented from the current state
-        impossible_option_idx = [idx for idx, option in enumerate(self.trained_options) if (not option.is_init_true(state.cpu().data.numpy()[0]))
-                                 or option.is_term_true(state.cpu().data.numpy()[0])]
+        # Arg-max only over actions that can be executed from the current state
+        # -- In general an option can be executed from s if s is in its initiation set and NOT in its termination set
+        # -- However, in the case of the goal option we just need to ensure that we are in its initiation set since
+        # -- its termination set is terminal anyway and we are thus not in the risk of executing og from its
+        # -- termination set.
+        impossible_option_idx = []
+        for idx, option in enumerate(self.trained_options):
+            np_state = state.cpu().data.numpy()[0]
+
+            if idx == 0:  # overall_goal_policy og
+                assert option.name == "overall_goal_policy", "should be og, got {}".format(option.name)
+                impossible = not option.is_init_true(np_state)
+            else:  # Every other option
+                impossible = (not option.is_init_true(np_state)) or option.is_term_true(np_state)
+
+            if impossible:
+                impossible_option_idx.append(idx)
+
         impossible_action_idx = map(lambda x: x + self.num_original_actions, impossible_option_idx)
         for impossible_idx in impossible_action_idx:
             action_values[0][impossible_idx] = torch.min(action_values, dim=1)[0] - 1.
@@ -248,35 +260,6 @@ class DQNAgent(Agent):
 
         # Not allowing epsilon-greedy to select an option as a random action
         return randomly_chosen_action
-
-    def _get_best_actions(self, states):
-        """
-        Looped and non-random version of the .act() function. The best actions are selected based on permissibility
-        given the option's initiation set and using an epsilon = 0.
-        Args:
-            states (torch.tensor): Tensor containing a batch of states
-
-        Returns:
-            best_actions (torch.tensor): Tensor with the corresponding best actions
-        """
-        best_actions = torch.zeros(states.shape[0], 1, device=device, dtype=torch.long)
-        for i, state in enumerate(states):
-            self.policy_network.eval()
-            with torch.no_grad():
-                action_values = self.policy_network(state)
-            self.policy_network.train()
-
-            # Argmax only over actions that can be implemented from the current state
-            impossible_option_idx = [idx for idx, option in enumerate(self.trained_options) if
-                                     (not option.is_init_true(state.cpu().data.numpy()))
-                                     or option.is_term_true(state.cpu().data.numpy())]
-            impossible_action_idx = map(lambda x: x + self.num_original_actions, impossible_option_idx)
-            for impossible_idx in impossible_action_idx:
-                action_values[impossible_idx] = torch.min(action_values).item() - 1.
-
-            best_action = torch.argmax(action_values)
-            best_actions[i] = best_action
-        return best_actions
 
     def get_best_actions_batched(self, states):
         q_values = self.get_batched_qvalues(states)
@@ -388,9 +371,7 @@ class DQNAgent(Agent):
                 self.policy_network.train()
             else:
                 selected_actions = self.get_best_actions_batched(next_states).unsqueeze(1)
-                # # selected_actions_loop = self._get_best_actions(next_states)
-                # if torch.all(selected_actions == selected_actions_loop).item() != 1:
-                #     pdb.set_trace()
+
             Q_targets_next = self.target_network(next_states).detach().gather(1, selected_actions)
         else:
             Q_targets_next = self.target_network(next_states).detach().max(1)[0].unsqueeze(1)

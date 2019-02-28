@@ -27,11 +27,12 @@ class LunarLanderMDP(MDP):
         MDP.__init__(self, list(range(self.env.action_space.n)), self._transition_func, self._reward_func,
                      init_state=LunarLanderState(*init_state, is_goal_state=False, is_terminal=False))
 
-    def _reward_func(self, state, action):
+    def _reward_func(self, state, action, option_idx=None):
         """
         Args:
             state (LunarLanderState)
             action (int): number between 0 and 3 inclusive
+            option_idx (int): was the action based on an option policy
 
         Returns:
             next_state (LunarLanderState)
@@ -70,6 +71,25 @@ class LunarLanderMDP(MDP):
     # Assuming that _reward_func(s, a) is called before _transition_func(s, a)
     def _transition_func(self, state, action):
         return self.next_state
+
+    def execute_agent_action(self, action, option_idx=None):
+        """
+        Args:
+            action (str)
+            option_idx (int): given if action came from an option policy
+
+        Returns:
+            (tuple: <float, State>): reward, State
+
+        Summary:
+            Core method of all of simple_rl. Facilitates interaction
+            between the MDP and an agent.
+        """
+        reward = self.reward_func(self.cur_state, action, option_idx)
+        next_state = self.transition_func(self.cur_state, action)
+        self.cur_state = next_state
+
+        return reward, next_state
 
     @staticmethod
     def is_goal_state(state):

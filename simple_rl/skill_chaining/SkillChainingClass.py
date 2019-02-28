@@ -14,6 +14,7 @@ import pdb
 import argparse
 import sys
 import os
+import random
 
 # Other imports.
 from simple_rl.mdp.StateClass import State
@@ -57,6 +58,7 @@ class SkillChaining(object):
         self.log_dir = log_dir
         self.seed = seed
 
+        random.seed(seed)
         np.random.seed(seed)
 
         self.trained_options = []
@@ -71,7 +73,8 @@ class SkillChaining(object):
                              buffer_length=self.buffer_length,
                              num_subgoal_hits_required=self.num_goal_hits_before_training,
                              subgoal_reward=self.subgoal_reward, seed=self.seed, max_steps=20000,
-                             classifier_type="ocsvm", enable_timeout=self.enable_option_timeout)
+                             classifier_type="ocsvm", enable_timeout=self.enable_option_timeout,
+                             generate_plots=self.generate_plots)
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
@@ -290,8 +293,8 @@ class SkillChaining(object):
             step_number = 0
             uo_episode_terminated = False
             state = deepcopy(self.mdp.init_state)
-            experience_buffer = deque([], maxlen=self.buffer_length)
-            state_buffer = deque([], maxlen=self.buffer_length)
+            experience_buffer = []
+            state_buffer = []
             episode_option_executions = defaultdict(lambda : 0)
 
             while step_number < num_steps:
@@ -303,10 +306,8 @@ class SkillChaining(object):
                     state_buffer.append(experience[0])
                 state_buffer.append(experiences[-1][-1]) # Don't forget to add the last s' to the buffer
 
-                if self.untrained_option.is_term_true(state) and \
-                    self.number_of_states_in_term_set(self.untrained_option, state_buffer) < (self.buffer_length // 4) and \
-                    len(experience_buffer) == self.buffer_length and \
-                    not uo_episode_terminated and self.untrained_option.get_training_phase() == "gestation":
+                if self.untrained_option.is_term_true(state) and (not uo_episode_terminated) and \
+                        self.untrained_option.get_training_phase() == "gestation":
 
                     uo_episode_terminated = True
 
@@ -466,7 +467,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     EXPERIMENT_NAME = "hard_pinball_sg_10"
-    NUM_EPISODES = 3000
+    NUM_EPISODES = 4000
     NUM_STEPS_PER_EPISODE = 1000
 
     # overall_mdp = construct_pinball_mdp(NUM_STEPS_PER_EPISODE)
@@ -477,7 +478,7 @@ if __name__ == '__main__':
     buffer_len = 190
     sub_reward = 10.
     lr = 1e-4
-    max_number_of_options = 3
+    max_number_of_options = 2
     logdir = create_log_dir(EXPERIMENT_NAME)
 
     solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed, lr=lr,
@@ -502,7 +503,7 @@ if __name__ == '__main__':
         # print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
         chainer = SkillChaining(overall_mdp, rl_agent=solver, buffer_length=buffer_len,
                                 seed=random_seed, subgoal_reward=sub_reward, max_num_options=max_number_of_options,
-                                lr_decay=False, log_dir=logdir, generate_plots=True)
+                                lr_decay=False, log_dir=logdir, generate_plots=False)
         episodic_scores, episodic_durations = chainer.skill_chaining(NUM_EPISODES, NUM_STEPS_PER_EPISODE)
 
         # Log performance metrics

@@ -137,7 +137,7 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=False):
 
     center_point = option.get_center_of_initiation_data(option.positive_examples)
     plt.scatter(center_point[0], center_point[1], s=50, marker="x", c="black", zorder=1)
-    plt.imshow(background_image, zorder=0, alpha=0.5, extent=[-1., 1., -0.25, 1.75])
+    plt.imshow(background_image, zorder=0, alpha=0.5, extent=[-1., 1., 0., 1.25])
 
     if is_pinball_domain:
         plt.xlim((0., 1.))
@@ -145,7 +145,6 @@ def plot_one_class_initiation_classifier(option, is_pinball_domain=False):
         plt.gca().invert_yaxis()
     else:
         plt.xlim((-1., 1.))
-        plt.ylim((-0.25, 1.75))
     plt.xlabel("xpos")
     plt.ylabel("ypos")
 
