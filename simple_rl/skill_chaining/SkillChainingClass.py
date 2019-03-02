@@ -5,7 +5,7 @@ import sys
 sys.path = [""] + sys.path
 
 import matplotlib
-matplotlib.use('TkAgg')
+# matplotlib.use('TkAgg')
 from collections import deque, defaultdict
 from copy import deepcopy
 import torch
@@ -41,7 +41,7 @@ class SkillChaining(object):
             enable_option_timeout (bool): whether or not the option times out after some number of steps
             intra_option_learning (bool): whether or not to use intra-option learning while making SMDP updates
             generate_plots (bool): whether or not to produce plots in this run
-            log_dir (os.path): directory to store all the scores for this run  
+            log_dir (os.path): directory to store all the scores for this run
             seed (int): We are going to use the same random seed for all the DQN solvers
         """
         self.mdp = mdp
@@ -312,16 +312,17 @@ class SkillChaining(object):
                     uo_episode_terminated = True
 
                     if self.untrained_option.train(experience_buffer, state_buffer):
+                        device = torch.device("cuda" if torch.cuda.is_available() else "cpu"
                         if self.generate_plots and not self.global_solver.tensor_log:
-                            render_value_function(self.global_solver, torch.device("cuda"), episode=episode-1000)
-                            plot_one_class_initiation_classifier(self.untrained_option)
+                            render_sampled_value_function(self.global_solver, device, episode=episode-10000)
+                            render_sampled_initiation_classifier(self.untrained_option, self.global_solver)
                         self._augment_agent_with_new_option(self.untrained_option)
                         if self.generate_plots and not self.global_solver.tensor_log:
-                            render_value_function(self.global_solver, torch.device("cuda"), episode=episode+1000)
+                            render_sampled_value_function(self.global_solver, device, episode=episode+10000)
 
                 if self.untrained_option.get_training_phase() == "initiation_done" and self.should_create_more_options():
                     self.create_child_option()
-                        
+
                 if state.is_out_of_frame() or state.is_terminal():
                     break
 
@@ -336,6 +337,8 @@ class SkillChaining(object):
         return per_episode_scores, per_episode_durations
 
     def _log_dqn_status(self, episode, last_10_scores, episode_option_executions, last_10_durations):
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # device = torch.device("cpu")
         print('\rEpisode {}\tAverage Score: {:.2f}\tDuration: {:.2f} steps\tEpsilon: {:.2f}'.format(episode, np.mean(last_10_scores), np.mean(last_10_durations), self.global_solver.epsilon), end="")
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}\tDuration: {:.2f} steps\tEpsilon: {:.2f}'.format(episode, np.mean(last_10_scores), np.mean(last_10_durations), self.global_solver.epsilon))
@@ -344,8 +347,9 @@ class SkillChaining(object):
             self.validation_scores.append(eval_score)
             print("\rEpisode {}\tValidation Score: {:.2f}".format(episode, eval_score))
 
-        if self.generate_plots and not self.global_solver.tensor_log and episode % 100 == 0:
-            render_value_function(self.global_solver, torch.device("cuda"), episode=episode)
+        if self.generate_plots and not self.global_solver.tensor_log and episode % 500 == 0:
+            # render_value_function(self.global_solver, torch.device("cuda"), episode=episode)
+            render_sampled_value_function(self.global_solver, device, episode=episode)
         for trained_option in self.trained_options:  # type: Option
             self.num_option_executions[trained_option.name].append(episode_option_executions[trained_option.name])
             if self.global_solver.tensor_log:
@@ -466,13 +470,9 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, help="Random seed for this run (default=0)", default=0)
     args = parser.parse_args()
 
-    EXPERIMENT_NAME = "hard_pinball_sg_10"
-    NUM_EPISODES = 10000
+    EXPERIMENT_NAME = "lunar_lander_cpu"
+    NUM_EPISODES = 4000
     NUM_STEPS_PER_EPISODE = 1000
-
-    # overall_mdp = construct_pinball_mdp(NUM_STEPS_PER_EPISODE)
-    overall_mdp = LunarLanderMDP(render=False)
-    state_space_size = overall_mdp.init_state.state_space_size()
 
     random_seed = args.seed
     buffer_len = 190
@@ -480,6 +480,10 @@ if __name__ == '__main__':
     lr = 1e-4
     max_number_of_options = 2
     logdir = create_log_dir(EXPERIMENT_NAME)
+
+    # overall_mdp = construct_pinball_mdp(NUM_STEPS_PER_EPISODE)
+    overall_mdp = LunarLanderMDP(seed=random_seed, render=False)
+    state_space_size = overall_mdp.init_state.state_space_size()
 
     solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed, lr=lr,
                       name="GlobalDQN", eps_start=1.0, tensor_log=False, use_double_dqn=True)
@@ -503,7 +507,7 @@ if __name__ == '__main__':
         # print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
         chainer = SkillChaining(overall_mdp, rl_agent=solver, buffer_length=buffer_len,
                                 seed=random_seed, subgoal_reward=sub_reward, max_num_options=max_number_of_options,
-                                lr_decay=False, log_dir=logdir, generate_plots=False)
+                                lr_decay=False, log_dir=logdir, generate_plots=True)
         episodic_scores, episodic_durations = chainer.skill_chaining(NUM_EPISODES, NUM_STEPS_PER_EPISODE)
 
         # Log performance metrics

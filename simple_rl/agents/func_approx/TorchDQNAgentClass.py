@@ -67,6 +67,7 @@ class OptionEpsilonSchedule(EpsilonSchedule):
         return max(self.eps_end, self.eps_exp_decay * current_epsilon)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 print("######### Using {} ############".format(device))
 
 class QNetwork(nn.Module):
@@ -170,7 +171,7 @@ class DQNAgent(Agent):
         self.optimizer = optim.Adam(self.policy_network.parameters(), lr=lr)
 
         # Replay memory
-        buffer_size = BUFFER_SIZE if "global" not in name.lower() else 10 * BUFFER_SIZE
+        buffer_size = BUFFER_SIZE if "global" not in name.lower() else 3 * BUFFER_SIZE
         self.replay_buffer = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed)
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0

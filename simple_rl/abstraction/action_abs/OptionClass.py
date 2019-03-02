@@ -224,7 +224,7 @@ class Option(object):
 		"""
 		assert type(states) == list, "Expected initiation experience sample to be a queue"
 
-		starting_idx = int(len(states) // 50)
+		starting_idx = int(len(states) // 90)
 		segmented_states = states[starting_idx:]
 
 		# Convert the high dimensional states to continuous subset for ease of learning the initiation classifier
@@ -240,7 +240,7 @@ class Option(object):
 		"""
 		assert type(experience_queue) == list, "Expected initiation experience sample to be a list"
 
-		starting_idx = int(len(experience_queue) // 50)
+		starting_idx = int(len(experience_queue) // 90)
 		segmented_experiences = experience_queue[starting_idx:]
 
 		experiences = [Experience(*exp) for exp in segmented_experiences]
@@ -315,10 +315,10 @@ class Option(object):
 			return
 
 		if self.is_term_true(s_prime):
+			print("{} execution successful".format(self.name))
 			self.num_successful_updates += 1
 			self.solver.step(s.features(), a, self.subgoal_reward, s_prime.features(), True, num_steps=1)
 		elif s_prime.is_terminal():
-			print("\rWarning: {} is taking me to the goal state even though its not in its term set\n".format(self.name))
 			self.solver.step(s.features(), a, r, s_prime.features(), True, num_steps=1)
 		else:
 			self.solver.step(s.features(), a, r, s_prime.features(), False, num_steps=1)
@@ -449,8 +449,8 @@ class Option(object):
 		if len(self.negative_examples) > 0:
 			self.train_two_class_classifier()
 			if self.generate_plots:
-				from simple_rl.skill_chaining.skill_chaining_utils import plot_binary_initiation_set
-				plot_binary_initiation_set(self)
+				from simple_rl.skill_chaining.skill_chaining_utils import render_sampled_initiation_classifier
+				render_sampled_initiation_classifier(self, self.global_solver)
 
 	def trained_option_execution(self, mdp, outer_step_counter, episodic_budget):
 		state = mdp.cur_state

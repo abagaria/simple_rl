@@ -11,13 +11,15 @@ from simple_rl.abstraction.action_abs.PredicateClass import Predicate
 class LunarLanderMDP(MDP):
     """ Class for Lunar Lander MDP. """
 
-    def __init__(self, render=False):
+    def __init__(self, seed, render=False):
         """
         Args:
+            seed (int)
             render (bool)
         """
         self.env_name = "LunarLander-v2"
         self.env = gym.make(self.env_name)
+        self.env.seed(seed)
         self.render = render
 
         # Each observation from env.step(action) is a tuple of the form state, reward, done, {}
@@ -44,8 +46,8 @@ class LunarLanderMDP(MDP):
         done = False
         goal = False
 
-
-        if self.env.env.game_over or abs(obs[0]) >= 1.:
+        # Negative reward for crashing or for leaving the sides or top of the screen
+        if self.env.env.game_over or abs(obs[0]) >= 1. or obs[1] >= 2.:
             done = True
             goal = False
             reward = -10

@@ -8,6 +8,7 @@ import torch
 import scipy.interpolate
 from scipy.misc import imread
 import pdb
+import random
 
 # Other imports.
 from simple_rl.tasks.lunar_lander.LunarLanderStateClass import LunarLanderState
@@ -275,6 +276,74 @@ def render_value_function(solver, device, episode=None, show=False):
     if show: plt.show()
     name = solver.name if episode is None else solver.name + "_{}".format(episode)
     plt.savefig("{}_value_function.png".format(name))
+    plt.close()
+
+def render_sampled_value_function(solver, device, episode=None, show=False):
+
+    # Array of experience tuples
+    replay_buffer = solver.replay_buffer.memory
+
+    # Extract all visited states in the replay buffer
+    if len(replay_buffer) > 10000:
+        states = random.sample([e.state for e in replay_buffer], 10000)
+    else:
+        states = [e.state for e in replay_buffer]
+
+    states_array = np.vstack(states)
+    states_tensor = torch.from_numpy(states_array).float().to(device)
+
+    # Forward pass through our Q-function
+    with torch.no_grad():
+        q_values = solver.get_batched_qvalues(states_tensor)
+        values = torch.max(q_values, dim=1)[0].cpu().data.numpy()
+
+    x = states_array[:, 0]
+    y = states_array[:, 1]
+    y_max = min(y.max(), 1.5)
+
+    xi, yi = np.arange(-1., 1.1, 0.1), np.arange(y.min(), y_max, 0.1)
+    xx, yy = np.meshgrid(xi, yi)
+
+    rbf = scipy.interpolate.Rbf(x, y, values, function="linear")
+    zz = rbf(xx, yy)
+
+    plt.contourf(xx, yy, zz)
+    plt.colorbar()
+    plt.title("Value Function at episode {}".format(episode))
+
+    name = solver.name if episode is None else solver.name + "_{}".format(episode)
+    plt.savefig("{}_value_function.png".format(name))
+    plt.close()
+
+def render_sampled_initiation_classifier(option, global_solver):
+    replay_buffer = global_solver.replay_buffer.memory
+
+    if len(replay_buffer) > 10000:
+        states = random.sample([e.state for e in replay_buffer], 10000)
+    else:
+        states = [e.state for e in replay_buffer]
+
+    states_array = np.vstack(states)
+
+    inits = option.batched_is_init_true(states_array[:, :-2])
+
+    x, y = states_array[:, 0], states_array[:, 1]
+    y_max = min(y.max(), 1.5)
+    xi, yi = np.arange(-1., 1.1, 0.1), np.arange(y.min(), y_max, 0.1)
+    xx, yy = np.meshgrid(xi, yi)
+    rbf = scipy.interpolate.Rbf(x, y, inits, function="linear")
+    zz = rbf(xx, yy)
+
+    plt.contourf(xx, yy, zz, cmap=plt.cm.coolwarm, alpha=0.8)
+    plt.colorbar()
+
+    plot_all_trajectories_in_initiation_data(option.positive_examples)
+
+    plt.xlim((-1., 1.))
+    plt.xlabel("xpos")
+    plt.ylabel("ypos")
+
+    plt.savefig("{}_svm_{}.png".format(option.name, time.time()))
     plt.close()
 
 def visualize_option_policy(option):
