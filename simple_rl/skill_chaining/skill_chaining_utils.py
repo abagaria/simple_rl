@@ -228,7 +228,7 @@ def get_grid_states():
             ss.append(s)
     return ss
 
-def render_value_function(solver, device, episode=None, show=False):
+def render_value_function(solver, device, episode=None, show=False, title=None):
     states = get_grid_states()
     values = get_values(solver, device)
     x = np.array([state.x for state in states])
@@ -242,7 +242,7 @@ def render_value_function(solver, device, episode=None, show=False):
     # plt.gca().invert_yaxis()
     if show: plt.show()
     name = solver.name if episode is None else solver.name + "_{}".format(episode)
-    plt.savefig("{}_value_function.png".format(name))
+    plt.savefig("{}_value_function.png".format(name if title is None else title))
     plt.close()
 
 def sample_termination_set_classifier(option):

@@ -10,6 +10,8 @@ from copy import deepcopy
 import shutil
 import os
 import time
+import argparse
+import pickle
 
 import torch.optim as optim
 
@@ -28,8 +30,8 @@ GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
 LR = 5e-4  # learning rate
 UPDATE_EVERY = 1  # how often to update the network
-NUM_EPISODES = 100
-NUM_STEPS = 20000
+NUM_EPISODES = 75
+NUM_STEPS = 10000
 
 class EpsilonSchedule:
     def __init__(self, eps_start, eps_end, eps_exp_decay, eps_linear_decay_length):
@@ -66,6 +68,17 @@ class OptionEpsilonSchedule(EpsilonSchedule):
     def update_epsilon(self, current_epsilon, num_executions):
         return max(self.eps_end, self.eps_exp_decay * current_epsilon)
 
+class ConstantEpsilonSchedule(EpsilonSchedule):
+    def __init__(self, constant_):
+        EPS_EXPONENTIAL_DECAY = 0.998
+        EPS_LINEAR_DECAY_LENGTH = 10000
+
+        self.constant = constant_
+        super(ConstantEpsilonSchedule, self).__init__(constant_, constant_, EPS_EXPONENTIAL_DECAY, EPS_LINEAR_DECAY_LENGTH)
+
+    def update_epsilon(self, current_epsilon, num_executions):
+        return self.constant
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("######### Using {} ############".format(device))
 
@@ -87,6 +100,9 @@ class QNetwork(nn.Module):
         self.fc1 = nn.Linear(state_size, fc1_units)
         self.fc2 = nn.Linear(fc1_units, fc2_units)
         self.fc3 = nn.Linear(fc2_units, action_size)
+
+    def initialize_q_value(self, q_value):
+        self.fc3.bias.data.fill_(q_value)
 
     def forward(self, state):
         """
@@ -149,7 +165,7 @@ class DQNAgent(Agent):
 
     def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent",
                  eps_start=1., tensor_log=False, lr=LR, use_double_dqn=False, gamma=GAMMA, loss_function="huber",
-                 gradient_clip=None, evaluation_epsilon=0.05):
+                 gradient_clip=None, evaluation_epsilon=0.05, explore="eps_decay", init_q=10.):
         self.state_size = state_size
         self.action_size = action_size
         self.num_original_actions = num_original_actions
@@ -167,10 +183,13 @@ class DQNAgent(Agent):
         self.policy_network = QNetwork(state_size, action_size, seed).to(device)
         self.target_network = QNetwork(state_size, action_size, seed).to(device)
 
-        # if "global" in name.lower():
-        #     self.optimizer = optim.Adam(self.policy_network.parameters(), lr=LR)
-        # else:
-        #     self.optimizer = optim.Adam(self.policy_network.parameters(), lr=LR)
+        self.explore = explore
+        self.init_q = init_q if explore == "optimistic" else 0.
+
+        if explore == "optimistic" or explore == "optimistic_decay":
+            self.policy_network.initialize_q_value(init_q)
+            self.target_network.initialize_q_value(init_q)
+
         self.optimizer = optim.Adam(self.policy_network.parameters(), lr=lr)
 
 
@@ -180,7 +199,15 @@ class DQNAgent(Agent):
         self.t_step = 0
 
         # Epsilon strategy
-        self.epsilon_schedule = GlobalEpsilonSchedule(eps_start) if "global" in name.lower() else OptionEpsilonSchedule(eps_start)
+        if explore == "eps_decay" or explore == "optimistic_decay":
+            self.epsilon_schedule = GlobalEpsilonSchedule(eps_start) if "global" in name.lower() else OptionEpsilonSchedule(eps_start)
+        elif explore == "eps_constant":
+            self.epsilon_schedule = ConstantEpsilonSchedule(eps_start)
+        elif explore == "none" or explore == "optimistic":
+            self.epsilon_schedule = ConstantEpsilonSchedule(0.)
+        else:
+            raise ValueError("Check exploration strategy {}".format(explore))
+
         self.epsilon = eps_start
         self.num_executions = 0 # Number of times act() is called (used for eps-decay)
 
@@ -517,7 +544,9 @@ class ReplayBuffer:
 def train(agent, mdp, episodes, steps):
     from simple_rl.skill_chaining.skill_chaining_utils import render_value_function
     per_episode_scores = []
+    per_episode_durations = []
     last_10_scores = deque(maxlen=10)
+    last_10_durations = deque(maxlen=10)
     iteration_counter = 0
 
     for episode in range(episodes):
@@ -538,13 +567,34 @@ def train(agent, mdp, episodes, steps):
                 break
         last_10_scores.append(score)
         per_episode_scores.append(score)
+        per_episode_durations.append(step)
+        last_10_durations.append(step)
 
-        print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)), end="")
+        print('\rEpisode {}\tAverage Score: {:.2f}\tAverage Duration: {:.2f}'.format(episode,
+                                                                                     np.mean(last_10_scores),
+                                                                                     np.mean(last_10_durations)
+                                                                                     ), end="")
         if episode % 10 == 0:
-            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)))
+            print('\rEpisode {}\tAverage Score: {:.2f}\tAverage Duration: {:.2f}'.format(episode,
+                                                                                         np.mean(last_10_scores),
+                                                                                         np.mean(last_10_durations)))
         if episode % 5 == 0:
-            render_value_function(agent, device, episode=episode)
-    return per_episode_scores
+            render_value_function(agent, device, episode=episode, title=args.experiment_name)
+    return per_episode_scores, per_episode_durations
+
+def save_all_scores(experiment_name, log_dir, seed, scores, durations):
+    print("\rSaving training and validation scores..")
+    training_scores_file_name = "{}_{}_training_scores.pkl".format(experiment_name, seed)
+    training_durations_file_name = "{}_{}_training_durations.pkl".format(experiment_name, seed)
+
+    if log_dir:
+        training_scores_file_name = os.path.join(log_dir, training_scores_file_name)
+        training_durations_file_name = os.path.join(log_dir, training_durations_file_name)
+
+    with open(training_scores_file_name, "wb+") as _f:
+        pickle.dump(scores, _f)
+    with open(training_durations_file_name, "wb+") as _f:
+        pickle.dump(durations, _f)
 
 def test_forward_pass(dqn_agent, mdp):
     # load the weights from file
@@ -562,26 +612,39 @@ def test_forward_pass(dqn_agent, mdp):
     mdp.render = False
     return overall_reward
 
-def main(num_training_episodes=NUM_EPISODES, to_plot=False):
-    mdp = PinballMDP(noise=0.0, episode_length=20000, render=False)
+def create_log_dir(experiment_name):
+    path = os.path.join(os.getcwd(), experiment_name)
+    try:
+        os.mkdir(path)
+    except OSError:
+        print("Creation of the directory %s failed" % path)
+    else:
+        print("Successfully created the directory %s " % path)
+    return path
 
-    # env.seed(RANDOM_SEED)
-
-    dqn_agent = DQNAgent(state_size=mdp.init_state.state_space_size(), action_size=len(mdp.actions),
-                         num_original_actions=len(mdp.actions), trained_options=[], seed=0, name="GlobalDQN")
-    episode_scores = train(dqn_agent, mdp, num_training_episodes, NUM_STEPS)
-
-    return episode_scores
 
 if __name__ == '__main__':
-    overall_mdp = PinballMDP(noise=0.0, episode_length=20000, render=True)
-    ddqn_agent = DQNAgent(state_size=overall_mdp.init_state.state_space_size(), action_size=len(overall_mdp.actions),
-                         num_original_actions=len(overall_mdp.actions), trained_options=[], seed=0, name="GlobalDDQN",
-                          tensor_log=False, use_double_dqn=True)
-    ddqn_episode_scores = train(ddqn_agent, overall_mdp, NUM_EPISODES, NUM_STEPS)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment_name", type=str, help="Experiment Name")
+    parser.add_argument("--seed", type=int, help="Random seed for this run (default=0)", default=0)
+    parser.add_argument("--episodes", type=int, help="# episodes", default=NUM_EPISODES)
+    parser.add_argument("--steps", type=int, help="# steps", default=NUM_STEPS)
+    parser.add_argument("--explore", type=str, help="Exploration strategy")
+    parser.add_argument("--const_eps", type=float, help="Eps if exploration strategy is constant epsilon", default=1.)
+    parser.add_argument("--init_q", type=float, help="Initial Q-value if exploration strategy is optimistic", default=10.)
+    args = parser.parse_args()
+
+    exploration_strategies = ["eps_decay", "optimistic", "optimistic_decay", "eps_decay", "eps_constant", "none"]
+    if args.explore not in exploration_strategies:
+        raise ValueError("--explore must be one of {}, got {}".format(exploration_strategies, args.explore))
+
+    logdir = create_log_dir(args.experiment_name)
+    learning_rate = 1e-4
 
     overall_mdp = PinballMDP(noise=0.0, episode_length=20000, render=True)
-    dqn_agent = DQNAgent(state_size=overall_mdp.init_state.state_space_size(), action_size=len(overall_mdp.actions),
-                         num_original_actions=len(overall_mdp.actions), trained_options=[], seed=0, name="GlobalDQN",
-                         tensor_log=False, use_double_dqn=False)
-    dqn_episode_scores = train(dqn_agent, overall_mdp, NUM_EPISODES, NUM_STEPS)
+    ddqn_agent = DQNAgent(state_size=overall_mdp.init_state.state_space_size(), action_size=len(overall_mdp.actions),
+                          num_original_actions=len(overall_mdp.actions), trained_options=[], seed=args.seed,
+                          name="GlobalDDQN", lr=learning_rate, tensor_log=False, use_double_dqn=True,
+                          explore=args.explore, init_q=args.init_q, eps_start=args.const_eps)
+    ddqn_episode_scores, ddqn_episode_durations = train(ddqn_agent, overall_mdp, args.episodes, args.steps)
+    save_all_scores(args.experiment_name, logdir, args.seed, ddqn_episode_scores, ddqn_episode_durations)
