@@ -184,7 +184,7 @@ class DQNAgent(Agent):
         self.target_network = QNetwork(state_size, action_size, seed).to(device)
 
         self.explore = explore
-        self.init_q = init_q if explore == "optimistic" else 0.
+        self.init_q = init_q if "optimistic" in explore else 0.
 
         if explore == "optimistic" or explore == "optimistic_decay":
             self.policy_network.initialize_q_value(init_q)
