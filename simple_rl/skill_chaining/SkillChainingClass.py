@@ -26,7 +26,7 @@ from simple_rl.skill_chaining.create_pre_trained_options import *
 class SkillChaining(object):
     def __init__(self, mdp, rl_agent, pretrained_options=[], buffer_length=25,
                  subgoal_reward=5000.0, subgoal_hits=3, max_num_options=4, lr_decay=False,
-                 enable_option_timeout=True, intra_option_learning=False, generate_plots=False, log_dir="", seed=0):
+                 enable_option_timeout=True, intra_option_learning=True, generate_plots=True, log_dir="", seed=0):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -71,7 +71,7 @@ class SkillChaining(object):
                              buffer_length=self.buffer_length,
                              num_subgoal_hits_required=self.num_goal_hits_before_training,
                              subgoal_reward=self.subgoal_reward, seed=self.seed, max_steps=20000,
-                             classifier_type="ocsvm", enable_timeout=self.enable_option_timeout)
+                             classifier_type="ocsvm", enable_timeout=self.enable_option_timeout, generate_plots=generate_plots)
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
@@ -80,9 +80,9 @@ class SkillChaining(object):
 
         # Debug variables
         self.global_execution_states = []
-        self.num_option_executions = defaultdict(lambda : [])
-        self.option_rewards = defaultdict(lambda : [])
-        self.option_qvalues = defaultdict(lambda : [])
+        self.num_option_executions = initialize_default_dict()
+        self.option_rewards = initialize_default_dict()
+        self.option_qvalues = initialize_default_dict()
 
     def create_child_option(self):
         # Create new option whose termination is the initiation of the option we just trained
@@ -92,7 +92,8 @@ class SkillChaining(object):
         old_untrained_option_id = id(self.untrained_option)
         new_untrained_option = Option(self.mdp, name=name, global_solver=self.global_solver, buffer_length=self.buffer_length,
                                       num_subgoal_hits_required=self.num_goal_hits_before_training, subgoal_reward=self.subgoal_reward,
-                                      seed=self.seed, parent=self.untrained_option, enable_timeout=True)
+                                      seed=self.seed, parent=self.untrained_option, enable_timeout=True,
+                                      generate_plots=self.untrained_option.generate_plots)
 
         self.untrained_option.children.append(new_untrained_option)
         self.untrained_option = new_untrained_option
@@ -165,7 +166,9 @@ class SkillChaining(object):
         # TODO: (since the option could have "failed" simply because it timed out)
         # TODO: During execution, the option could have gone outside its initiation set, we shouldn't make updates for
         # TODO: those transitions
-        if self.enable_intra_option_learning:
+        option_idx = action - len(self.mdp.actions)
+        selected_option = self.trained_options[option_idx]  # type: Option
+        if self.enable_intra_option_learning and selected_option.is_term_true(next_state):
             def get_reward(transitions):
                 gamma = self.global_solver.gamma
                 raw_rewards = [tt[2] for tt in transitions]
@@ -174,8 +177,9 @@ class SkillChaining(object):
                 sub_transitions = option_transitions[i:]
                 start_state = transition[0]
                 discounted_reward = get_reward(sub_transitions)
-                self.global_solver.step(start_state.features(), action, discounted_reward, next_state.features(),
-                                        next_state.is_terminal(), num_steps=len(sub_transitions))
+                if selected_option.is_init_true(start_state):
+                    self.global_solver.step(start_state.features(), action, discounted_reward, next_state.features(),
+                                            next_state.is_terminal(), num_steps=len(sub_transitions))
         else:
             self.global_solver.step(state.features(), action, total_discounted_reward, next_state.features(),
                                     next_state.is_terminal(), num_steps=len(option_transitions))
@@ -193,8 +197,13 @@ class SkillChaining(object):
             reward (float): sum of all rewards accumulated while executing chosen action
             next_state (State): state we landed in after executing chosen action
         """
-        # Query the global Q-function to determine optimal action from current state
-        action = self.global_solver.act(state.features(), train_mode=True)
+        for option in self.trained_options:  # type: Option
+            if option.is_init_true(state) and not option.is_term_true(state) and option.get_training_phase() == "initiation":
+                action = option.option_idx + len(self.mdp.actions)
+                break
+        else:
+            # Query the global Q-function to determine optimal action from current state
+            action = self.global_solver.act(state.features(), train_mode=True)
 
         if self.mdp.is_primitive_action(action):
             reward, next_state = self.mdp.execute_agent_action(action)
@@ -370,11 +379,13 @@ class SkillChaining(object):
         training_scores_file_name = "sc_pretrained_{}_training_scores_{}.pkl".format(pretrained, self.seed)
         training_durations_file_name = "sc_pretrained_{}_training_durations_{}.pkl".format(pretrained, self.seed)
         validation_scores_file_name = "sc_pretrained_{}_validation_scores_{}.pkl".format(pretrained, self.seed)
+        option_executions_file_name = "sc_pretrained_{}_option_executions_{}.pkl".format(pretrained, self.seed)
 
         if self.log_dir:
             training_scores_file_name = os.path.join(self.log_dir, training_scores_file_name)
             training_durations_file_name = os.path.join(self.log_dir, training_durations_file_name)
             validation_scores_file_name = os.path.join(self.log_dir, validation_scores_file_name)
+            option_executions_file_name = os.path.join(self.log_dir, option_executions_file_name)
 
         with open(training_scores_file_name, "wb+") as _f:
             pickle.dump(scores, _f)
@@ -382,6 +393,8 @@ class SkillChaining(object):
             pickle.dump(durations, _f)
         with open(validation_scores_file_name, "wb+") as _f:
             pickle.dump(self.validation_scores, _f)
+        with open(option_executions_file_name, "wb+") as _f:
+            pickle.dump(self.num_option_executions, _f)
 
     def perform_experiments(self):
         for option in self.trained_options:
@@ -459,30 +472,39 @@ def construct_pinball_mdp(episode_length):
     mdp = PinballMDP(noise=0.0, episode_length=episode_length, reward_scale=1000., render=True)
     return mdp
 
+def initialize_default_dict():
+    return defaultdict(list)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment_name", type=str, help="Experiment Name")
     parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
     parser.add_argument("--seed", type=int, help="Random seed for this run (default=0)", default=0)
+    parser.add_argument("--episodes", type=int, help="# episodes", default=250)
+    parser.add_argument("--steps", type=int, help="# steps", default=10000)
+    parser.add_argument("--intra_option_learning", type=bool, help="Whether or not to use i-o-l", default=False)
+    parser.add_argument("--buffer_len", type=int, help="SkillChaining Buffer Length", default=20)
+    parser.add_argument("--subgoal_reward", type=float, help="SkillChaining subgoal reward", default=10.0)
+    parser.add_argument("--lr", type=float, help="learning rate", default=1e-4)
+    parser.add_argument("--n_options", type=int, help="Max # options to learn", default=3)
+    parser.add_argument("--explore", type=str, help="Exploration Strategy (none/eps_decay)", default="none")
     args = parser.parse_args()
 
-    EXPERIMENT_NAME = "medium_pinball_sg_10"
-    NUM_EPISODES = 1
-    NUM_STEPS_PER_EPISODE = 10000
-
-    overall_mdp = construct_pinball_mdp(NUM_STEPS_PER_EPISODE)
+    overall_mdp = construct_pinball_mdp(args.steps)
     state_space_size = overall_mdp.init_state.state_space_size()
     random_seed = args.seed
-    buffer_len = 20
-    sub_reward = 10.
-    lr = 1e-4
-    max_number_of_options = 3
-    logdir = create_log_dir(EXPERIMENT_NAME)
+    lr = args.lr
+    max_number_of_options = args.n_options
+    logdir = create_log_dir(args.experiment_name)
+    buffer_len = args.buffer_len
+    sub_reward = args.subgoal_reward
+
     solver = DQNAgent(state_space_size, len(overall_mdp.actions), len(overall_mdp.actions), [], seed=random_seed, lr=lr,
-                      name="GlobalDQN", eps_start=1.0, tensor_log=False, use_double_dqn=True)
+                      name="GlobalDQN", eps_start=1.0, tensor_log=False, use_double_dqn=True, explore=args.explore)
 
     if args.pretrained:
         loader = PretrainedOptionsLoader(overall_mdp, solver, buffer_len, num_subgoal_hits_required=3, subgoal_reward=sub_reward,
-                                         max_steps=NUM_STEPS_PER_EPISODE, seed=random_seed)
+                                         max_steps=args.steps, seed=random_seed)
         pretrained_options = loader.get_pretrained_options()
         for pretrained_option in pretrained_options:
             solver = loader.augment_global_agent_with_option(solver, pretrained_option)
@@ -491,7 +513,7 @@ if __name__ == '__main__':
                                 seed=random_seed, subgoal_reward=sub_reward, max_num_options=0,
                                 lr_decay=False, pretrained_options=pretrained_options,
                                 log_dir=logdir)
-        pretrained_episodic_scores, pretrained_episodic_durations = chainer.skill_chaining(NUM_EPISODES, NUM_STEPS_PER_EPISODE)
+        pretrained_episodic_scores, pretrained_episodic_durations = chainer.skill_chaining(args.episodes, args.steps)
         chainer.save_all_scores(args.pretrained, pretrained_episodic_scores, pretrained_episodic_durations)
     else:
         print("Training skill chaining agent from scratch with a buffer length of {} and subgoal reward {}".format(buffer_len, sub_reward))
@@ -499,8 +521,8 @@ if __name__ == '__main__':
         print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
         chainer = SkillChaining(overall_mdp, rl_agent=solver, buffer_length=buffer_len,
                                 seed=random_seed, subgoal_reward=sub_reward, max_num_options=max_number_of_options,
-                                lr_decay=False, log_dir=logdir)
-        episodic_scores, episodic_durations = chainer.skill_chaining(NUM_EPISODES, NUM_STEPS_PER_EPISODE)
+                                lr_decay=False, log_dir=logdir, intra_option_learning=args.intra_option_learning)
+        episodic_scores, episodic_durations = chainer.skill_chaining(args.episodes, args.steps)
 
         # Log performance metrics
         chainer.save_all_dqns()

@@ -42,6 +42,13 @@ class EpsilonSchedule:
     def update_epsilon(self, current_epsilon, num_executions):
         pass
 
+class NoExplorationSchedule(EpsilonSchedule):
+    def __init__(self):
+        super(NoExplorationSchedule, self).__init__(0.0, 0.0, 0.0, 1.0)
+
+    def update_epsilon(self, current_epsilon, num_executions):
+        return 0.0
+
 class GlobalEpsilonSchedule(EpsilonSchedule):
     def __init__(self, eps_start):
         EPS_END = 0.05
@@ -149,7 +156,7 @@ class DQNAgent(Agent):
 
     def __init__(self, state_size, action_size, num_original_actions, trained_options, seed, name="DQN-Agent",
                  eps_start=1., tensor_log=False, lr=LR, use_double_dqn=False, gamma=GAMMA, loss_function="huber",
-                 gradient_clip=None, evaluation_epsilon=0.05):
+                 gradient_clip=None, evaluation_epsilon=0.0, explore="none"):
         self.state_size = state_size
         self.action_size = action_size
         self.num_original_actions = num_original_actions
@@ -167,10 +174,6 @@ class DQNAgent(Agent):
         self.policy_network = QNetwork(state_size, action_size, seed).to(device)
         self.target_network = QNetwork(state_size, action_size, seed).to(device)
 
-        # if "global" in name.lower():
-        #     self.optimizer = optim.Adam(self.policy_network.parameters(), lr=LR)
-        # else:
-        #     self.optimizer = optim.Adam(self.policy_network.parameters(), lr=LR)
         self.optimizer = optim.Adam(self.policy_network.parameters(), lr=lr)
 
 
@@ -180,8 +183,13 @@ class DQNAgent(Agent):
         self.t_step = 0
 
         # Epsilon strategy
-        self.epsilon_schedule = GlobalEpsilonSchedule(eps_start) if "global" in name.lower() else OptionEpsilonSchedule(eps_start)
-        self.epsilon = eps_start
+        if explore == "none":
+            self.epsilon_schedule = NoExplorationSchedule()
+            self.epsilon = 0.0
+        else:
+            self.epsilon_schedule = GlobalEpsilonSchedule(eps_start) if "global" in name.lower() else OptionEpsilonSchedule(eps_start)
+            self.epsilon = eps_start
+
         self.num_executions = 0 # Number of times act() is called (used for eps-decay)
 
         # Debugging attributes
