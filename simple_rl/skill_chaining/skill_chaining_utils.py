@@ -11,7 +11,7 @@ import pdb
 
 # Other imports.
 from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
-from simple_rl.tasks.pinball.PinballStateClass import PinballState
+from simple_rl.tasks.acrobot.AcrobotStateClass import AcrobotState
 
 
 def plot_trajectory(trajectory, show=True, color='k', with_experiences=False, marker="o"):
@@ -210,32 +210,35 @@ def get_qvalue(agent, state, device):
 
 def get_values(solver, device):
     values = []
-    for x in np.arange(0., 1.1, 0.1):
-        for y in np.arange(0., 1.1, 0.1):
+    for theta_1 in np.arange(-np.pi, np.pi + np.pi/4, np.pi/4):
+        for theta_2 in np.arange(-np.pi, np.pi + np.pi/4, np.pi/4):
             v = []
-            for vx in [-1., -0.5, 0., 0.5, 1.]:
-                for vy in [-1., -0.5, 0., 0.5, 1.]:
-                    s = PinballState(x, y, vx, vy)
+            for vx in np.arange(-4*np.pi, 5*np.pi, 2*np.pi):
+                for vy in np.arange(-9*np.pi, 10*np.pi, 3*np.pi):
+                    s = AcrobotState(np.cos(theta_1), np.sin(theta_1), np.cos(theta_2), np.sin(theta_2), vx, vy)
                     v.append(solver.get_value(s.features()))
             values.append(np.mean(v))
     return values
 
 def get_grid_states():
     ss = []
-    for x in np.arange(0., 1.1, 0.1):
-        for y in np.arange(0., 1.1, 0.1):
-            s = PinballState(x, y, 0, 0)
+    for theta_1 in np.arange(-np.pi, np.pi + np.pi/4, np.pi/4):
+        for theta_2 in np.arange(-np.pi, np.pi + np.pi/4, np.pi/4):
+            s = AcrobotState(np.cos(theta_1), np.sin(theta_1), np.cos(theta_2), np.sin(theta_2), 0, 0)
             ss.append(s)
     return ss
 
 def render_value_function(solver, device, episode=None, show=False):
     states = get_grid_states()
     values = get_values(solver, device)
-    x = np.array([state.x for state in states])
-    y = np.array([state.y for state in states])
+    x = np.array([AcrobotState.acrobot_acos(state.cos_theta_1) for state in states])
+    y = np.array([AcrobotState.acrobot_acos(state.cos_theta_2) for state in states])
     xi, yi = np.linspace(x.min(), x.max(), 1000), np.linspace(y.min(), y.max(), 1000)
     xx, yy = np.meshgrid(xi, yi)
-    rbf = scipy.interpolate.Rbf(x, y, values, function="linear")
+    try:
+        rbf = scipy.interpolate.Rbf(x, y, values, function="linear")
+    except:
+        return
     zz = rbf(xx, yy)
     plt.imshow(zz, vmin=min(values), vmax=max(values), extent=[x.min(), x.max(), y.min(), y.max()])
     plt.colorbar()

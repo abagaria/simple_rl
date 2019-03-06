@@ -1,25 +1,28 @@
+# Python imports.
 import numpy as np
 import random
 from collections import namedtuple, deque
-import gym
-import matplotlib.pyplot as plt
 import seaborn as sns
-sns.set()
 import pdb
 from copy import deepcopy
 import shutil
 import os
-import time
+import pickle
+import argparse
 
-import torch.optim as optim
-
+# PyTorch imports.
 import torch
+import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 
+# Other imports.
 from simple_rl.agents.AgentClass import Agent
 from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
+from simple_rl.tasks.acrobot.AcrobotMDPClass import AcrobotMDP
+
+sns.set()
 
 ## Hyperparameters
 BUFFER_SIZE = int(1e6)  # replay buffer size
@@ -28,8 +31,8 @@ GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
 LR = 5e-4  # learning rate
 UPDATE_EVERY = 1  # how often to update the network
-NUM_EPISODES = 100
-NUM_STEPS = 20000
+NUM_EPISODES = 300
+NUM_STEPS = 500
 
 class EpsilonSchedule:
     def __init__(self, eps_start, eps_end, eps_exp_decay, eps_linear_decay_length):
@@ -167,7 +170,10 @@ class DQNAgent(Agent):
         self.loss_function = loss_function
         self.gradient_clip = gradient_clip
         self.evaluation_epsilon = evaluation_epsilon
+
         self.seed = random.seed(seed)
+        np.random.seed(seed)
+
         self.tensor_log = tensor_log
 
         # Q-Network
@@ -554,6 +560,16 @@ def train(agent, mdp, episodes, steps):
             render_value_function(agent, device, episode=episode)
     return per_episode_scores
 
+def save_all_scores(experiment_name, log_dir, seed, scores):
+    print("\rSaving training and validation scores..")
+    training_scores_file_name = "{}_{}_training_scores.pkl".format(experiment_name, seed)
+
+    if log_dir:
+        training_scores_file_name = os.path.join(log_dir, training_scores_file_name)
+
+    with open(training_scores_file_name, "wb+") as _f:
+        pickle.dump(scores, _f)
+
 def test_forward_pass(dqn_agent, mdp):
     # load the weights from file
     mdp.reset()
@@ -570,26 +586,34 @@ def test_forward_pass(dqn_agent, mdp):
     mdp.render = False
     return overall_reward
 
-def main(num_training_episodes=NUM_EPISODES, to_plot=False):
-    mdp = PinballMDP(noise=0.0, episode_length=20000, render=False)
-
-    # env.seed(RANDOM_SEED)
-
-    dqn_agent = DQNAgent(state_size=mdp.init_state.state_space_size(), action_size=len(mdp.actions),
-                         num_original_actions=len(mdp.actions), trained_options=[], seed=0, name="GlobalDQN")
-    episode_scores = train(dqn_agent, mdp, num_training_episodes, NUM_STEPS)
-
-    return episode_scores
+def create_log_dir(experiment_name):
+    path = os.path.join(os.getcwd(), experiment_name)
+    try:
+        os.mkdir(path)
+    except OSError:
+        print("Creation of the directory %s failed" % path)
+    else:
+        print("Successfully created the directory %s " % path)
+    return path
 
 if __name__ == '__main__':
-    overall_mdp = PinballMDP(noise=0.0, episode_length=20000, render=True)
-    ddqn_agent = DQNAgent(state_size=overall_mdp.init_state.state_space_size(), action_size=len(overall_mdp.actions),
-                         num_original_actions=len(overall_mdp.actions), trained_options=[], seed=0, name="GlobalDDQN",
-                          tensor_log=False, use_double_dqn=True)
-    ddqn_episode_scores = train(ddqn_agent, overall_mdp, NUM_EPISODES, NUM_STEPS)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment_name", type=str, help="Experiment Name")
+    parser.add_argument("--seed", type=int, help="Random seed for this run (default=0)", default=0)
+    parser.add_argument("--episodes", type=int, help="# episodes", default=NUM_EPISODES)
+    parser.add_argument("--steps", type=int, help="# steps", default=NUM_STEPS)
+    parser.add_argument("--explore", type=str, help="Exploration strategy", default="none")
+    parser.add_argument("--render", type=bool, help="Render the mdp env", default=False)
+    args = parser.parse_args()
 
-    overall_mdp = PinballMDP(noise=0.0, episode_length=20000, render=True)
-    dqn_agent = DQNAgent(state_size=overall_mdp.init_state.state_space_size(), action_size=len(overall_mdp.actions),
-                         num_original_actions=len(overall_mdp.actions), trained_options=[], seed=0, name="GlobalDQN",
-                         tensor_log=False, use_double_dqn=False)
-    dqn_episode_scores = train(dqn_agent, overall_mdp, NUM_EPISODES, NUM_STEPS)
+    logdir = create_log_dir(args.experiment_name)
+    learning_rate = 1e-4
+    init_epsilon = 0.0 if args.explore == "none" else 1.0
+
+    overall_mdp = AcrobotMDP(render=args.render, seed=args.seed)
+    ddqn_agent = DQNAgent(state_size=overall_mdp.init_state.state_space_size(), action_size=len(overall_mdp.actions),
+                          num_original_actions=len(overall_mdp.actions), trained_options=[], seed=args.seed,
+                          name="GlobalDDQN", lr=learning_rate, tensor_log=False, use_double_dqn=True,
+                          explore=args.explore, eps_start=init_epsilon)
+    ddqn_episode_scores = train(ddqn_agent, overall_mdp, args.episodes, args.steps)
+    save_all_scores(args.experiment_name, logdir, args.seed, ddqn_episode_scores)
