@@ -15,7 +15,6 @@ import time
 # Other imports.
 from simple_rl.mdp.StateClass import State
 from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
-from simple_rl.tasks.pinball.PinballStateClass import PinballState, PositionalPinballState
 
 class Experience(object):
 	def __init__(self, s, a, r, s_prime):
@@ -127,51 +126,39 @@ class Option(object):
 	def __ne__(self, other):
 		return not self == other
 
-	@staticmethod
-	def _get_positional_state(ground_state):
-		if isinstance(ground_state, PositionalPinballState):
-			return ground_state
-		if isinstance(ground_state, PinballState):
-			return ground_state.convert_to_positional_state()
-		elif isinstance(ground_state, np.ndarray):
-			return PositionalPinballState(ground_state[0], ground_state[1])
-		raise ValueError("Got state of type {}".format(type(ground_state)))
-
 	def distance_to_closest_positive_example(self, state):
-		XA = state.get_position()
+		XA = state.features()
 		XB = self._construct_feature_matrix(self.positive_examples)
 		distances = distance.cdist(XA[None, ...], XB, "euclidean")
 		return np.min(distances)
 
-	def batched_is_init_true(self, positional_state_matrix):
-		assert positional_state_matrix.shape[1] == 2, "Expected columns to correspond to x, y positions"
+	def batched_is_init_true(self, state_matrix):
 		if self.classifier_type == "tcsvm":
-			svm_predictions = self.initiation_classifier.predict(positional_state_matrix)
+			svm_predictions = self.initiation_classifier.predict(state_matrix)
 
 			positive_example_matrix = self._construct_feature_matrix(self.positive_examples)
-			distance_matrix = distance.cdist(positional_state_matrix, positive_example_matrix, "euclidean")
+			distance_matrix = distance.cdist(state_matrix, positive_example_matrix, "euclidean")
 			closest_distances = np.min(distance_matrix, axis=1)
 			distance_predictions = closest_distances < 0.1
 
 			predictions = np.logical_and(svm_predictions, distance_predictions)
 			return predictions
 		if self.classifier_type == "ocsvm":
-			return self.initiation_classifier.predict(positional_state_matrix)
+			return self.initiation_classifier.predict(state_matrix)
 		raise NotImplementedError("Classifier type {} not supported".format(self.classifier_type))
 
 	def is_init_true(self, ground_state):
-		positional_state = self._get_positional_state(ground_state)
-		svm_decision = self.initiation_classifier.predict([positional_state.features()])[0] == 1
+		svm_decision = self.initiation_classifier.predict([ground_state.features()])[0] == 1
 
 		if self.classifier_type == "ocsvm":
 			return svm_decision
 		if self.classifier_type == "tcsvm":
-			dist = self.distance_to_closest_positive_example(positional_state)
+			dist = self.distance_to_closest_positive_example(ground_state)
 			return svm_decision and dist < 0.1
 		raise NotImplementedError("Classifier type {} not supported".format(self.classifier_type))
 
 	# TODO: Does it make more sense to return true for entering *any* parent's initiation set
-	# e.g, if I enter my grand-parent's initiation set, should that be a terminal transition?
+	# TODO: e.g, if I enter my grand-parent's initiation set, should that be a terminal transition?
 	# TODO: Write a batched version of this function and then use it in the DQNAgentClass
 	def is_term_true(self, ground_state):
 		if self.parent is not None:
@@ -179,8 +166,7 @@ class Option(object):
 
 		# If option does not have a parent, it must be the goal option
 		assert self.name == "overall_goal_policy", "{}".format(self.name)
-		positional_state = self._get_positional_state(ground_state)
-		return self.overall_mdp.is_goal_state(positional_state)
+		return ground_state.is_terminal()
 
 	def get_final_positive_examples(self):
 		positive_trajectories = self.positive_examples
@@ -210,13 +196,7 @@ class Option(object):
 		assert type(states_queue) == deque, "Expected initiation experience sample to be a queue"
 		states = list(states_queue)
 
-		# Convert the high dimensional states to positional states for ease of learning the initiation classifier
-		positional_states = [state.convert_to_positional_state() for state in states]
-
-		last_state = positional_states[-1]
-		filtered_positional_states = list(filter(lambda s: np.linalg.norm(s.features() - last_state.features()) < 0.3, positional_states))
-
-		self.positive_examples.append(filtered_positional_states)
+		self.positive_examples.append(states)
 
 	def add_experience_buffer(self, experience_queue):
 		"""
@@ -414,11 +394,10 @@ class Option(object):
 			self.num_goal_hits += 1
 			if not self.pretrained:
 				positive_states = [start_state] + visited_states[-self.buffer_length:]
-				positive_positional_states = list(map(lambda s: s.convert_to_positional_state(), positive_states))
-				self.positive_examples.append(positive_positional_states)
+				self.positive_examples.append(positive_states)
 
 		elif num_steps == self.timeout:
-			negative_examples = [start_state.convert_to_positional_state()]
+			negative_examples = [start_state]
 			if self.parent is not None:
 				parent_sampled_negative = random.choice(self.parent.get_final_positive_examples())
 				negative_examples.append(parent_sampled_negative)

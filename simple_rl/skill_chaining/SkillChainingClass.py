@@ -22,10 +22,13 @@ from simple_rl.agents.func_approx.TorchDQNAgentClass import DQNAgent
 from simple_rl.tasks.lunar_lander.LunarLanderMDPClass import LunarLanderMDP
 from simple_rl.skill_chaining.skill_chaining_utils import *
 from simple_rl.skill_chaining.create_pre_trained_options import *
+from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
+from simple_rl.tasks.acrobot.AcrobotMDPClass import AcrobotMDP
+
 
 class SkillChaining(object):
     def __init__(self, mdp, rl_agent, pretrained_options=[], buffer_length=25,
-                 subgoal_reward=5000.0, subgoal_hits=3, max_num_options=4, lr_decay=False,
+                 subgoal_reward=5000.0, subgoal_hits=3, max_num_options=3, lr_decay=False,
                  enable_option_timeout=True, intra_option_learning=True, generate_plots=True, log_dir="", seed=0):
         """
         Args:
@@ -467,11 +470,6 @@ def create_log_dir(experiment_name):
         print("Successfully created the directory %s " % path)
     return path
 
-def construct_pinball_mdp(episode_length):
-    from simple_rl.tasks.pinball.PinballMDPClass import PinballMDP
-    mdp = PinballMDP(noise=0.0, episode_length=episode_length, reward_scale=1000., render=True)
-    return mdp
-
 def initialize_default_dict():
     return defaultdict(list)
 
@@ -484,13 +482,14 @@ if __name__ == '__main__':
     parser.add_argument("--steps", type=int, help="# steps", default=10000)
     parser.add_argument("--intra_option_learning", type=bool, help="Whether or not to use i-o-l", default=False)
     parser.add_argument("--buffer_len", type=int, help="SkillChaining Buffer Length", default=20)
-    parser.add_argument("--subgoal_reward", type=float, help="SkillChaining subgoal reward", default=10.0)
+    parser.add_argument("--subgoal_reward", type=float, help="SkillChaining subgoal reward", default=1.0)
     parser.add_argument("--lr", type=float, help="learning rate", default=1e-4)
     parser.add_argument("--n_options", type=int, help="Max # options to learn", default=3)
     parser.add_argument("--explore", type=str, help="Exploration Strategy (none/eps_decay)", default="none")
+    parser.add_argument("--render", type=bool, help="Render the mdp env", default=False)
     args = parser.parse_args()
 
-    overall_mdp = construct_pinball_mdp(args.steps)
+    overall_mdp = AcrobotMDP(args.seed, args.render)
     state_space_size = overall_mdp.init_state.state_space_size()
     random_seed = args.seed
     lr = args.lr

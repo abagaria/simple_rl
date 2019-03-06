@@ -8,6 +8,7 @@ import torch
 import scipy.interpolate
 from scipy.misc import imread
 import pdb
+import random
 
 # Other imports.
 from simple_rl.tasks.lunar_lander.PositionalLunarLanderStateClass import PositionalLunarLanderState
@@ -244,6 +245,48 @@ def render_value_function(solver, device, episode=None, show=False):
     plt.colorbar()
     # plt.gca().invert_yaxis()
     if show: plt.show()
+    name = solver.name if episode is None else solver.name + "_{}".format(episode)
+    plt.savefig("{}_value_function.png".format(name))
+    plt.close()
+
+def render_sampled_value_function(solver, device, episode=None, show=False):
+
+    # Array of experience tuples
+    replay_buffer = solver.replay_buffer.memory
+
+    # Extract all visited states in the replay buffer
+    if len(replay_buffer) > 1000:
+        states = random.sample([e.state for e in replay_buffer], 1000)
+    else:
+        states = [e.state for e in replay_buffer]
+
+    states_array = np.vstack(states)
+    states_tensor = torch.from_numpy(states_array).float().to(device)
+
+    # Forward pass through our Q-function
+    with torch.no_grad():
+        q_values = solver.get_batched_qvalues(states_tensor)
+        values = torch.max(q_values, dim=1)[0].cpu().data.numpy()
+
+    x = np.arccos(states_array[:, 0])  # theta 1
+    y = np.arccos(states_array[:, 2])  # theta 2
+
+    xi, yi = np.linspace(x.min(), x.max(), 500), np.linspace(y.min(), y.max(), 500)
+    xx, yy = np.meshgrid(xi, yi)
+
+    try:
+        rbf = scipy.interpolate.Rbf(x, y, values, function="linear")
+    except:
+        print("Could not render value function because of interpolation error")
+        plt.close()
+        return
+
+    zz = rbf(xx, yy)
+
+    plt.contourf(xx, yy, zz)
+    plt.colorbar()
+    plt.title("Value Function at episode {}".format(episode))
+
     name = solver.name if episode is None else solver.name + "_{}".format(episode)
     plt.savefig("{}_value_function.png".format(name))
     plt.close()

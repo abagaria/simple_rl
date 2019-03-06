@@ -31,7 +31,7 @@ GAMMA = 0.99  # discount factor
 TAU = 1e-3  # for soft update of target parameters
 LR = 5e-4  # learning rate
 UPDATE_EVERY = 1  # how often to update the network
-NUM_EPISODES = 300
+NUM_EPISODES = 500
 NUM_STEPS = 500
 
 class EpsilonSchedule:
@@ -529,7 +529,7 @@ class ReplayBuffer:
         return len(self.memory)
 
 def train(agent, mdp, episodes, steps):
-    from simple_rl.skill_chaining.skill_chaining_utils import render_value_function
+    from simple_rl.skill_chaining.skill_chaining_utils import render_sampled_value_function
     per_episode_scores = []
     last_10_scores = deque(maxlen=10)
     iteration_counter = 0
@@ -556,8 +556,8 @@ def train(agent, mdp, episodes, steps):
         print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)), end="")
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(last_10_scores)))
-        if episode % 5 == 0:
-            render_value_function(agent, device, episode=episode)
+        if episode % 100 == 0:
+            render_sampled_value_function(agent, device, episode=episode)
     return per_episode_scores
 
 def save_all_scores(experiment_name, log_dir, seed, scores):
