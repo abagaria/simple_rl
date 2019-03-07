@@ -5,7 +5,7 @@ import sys
 sys.path = [""] + sys.path
 
 import matplotlib
-matplotlib.use('TkAgg')
+# matplotlib.use('TkAgg')
 from collections import deque, defaultdict
 from copy import deepcopy
 import torch
@@ -29,7 +29,8 @@ from simple_rl.tasks.acrobot.AcrobotMDPClass import AcrobotMDP
 class SkillChaining(object):
     def __init__(self, mdp, rl_agent, pretrained_options=[], buffer_length=25,
                  subgoal_reward=5000.0, subgoal_hits=3, max_num_options=5, lr_decay=False,
-                 enable_option_timeout=True, intra_option_learning=True, generate_plots=True, log_dir="", seed=0):
+                 enable_option_timeout=True, intra_option_learning=True, generate_plots=True,
+                 option_distance_threshold=0.5, log_dir="", seed=0):
         """
         Args:
             mdp (MDP): Underlying domain we have to solve
@@ -43,7 +44,8 @@ class SkillChaining(object):
             enable_option_timeout (bool): whether or not the option times out after some number of steps
             intra_option_learning (bool): whether or not to use intra-option learning while making SMDP updates
             generate_plots (bool): whether or not to produce plots in this run
-            log_dir (os.path): directory to store all the scores for this run  
+            option_distance_threshold (float): max distance between init classifier and a positive example
+            log_dir (os.path): directory to store all the scores for this run
             seed (int): We are going to use the same random seed for all the DQN solvers
         """
         self.mdp = mdp
@@ -57,6 +59,7 @@ class SkillChaining(object):
         self.enable_option_timeout = enable_option_timeout
         self.enable_intra_option_learning = intra_option_learning
         self.generate_plots = generate_plots
+        self.option_distance_threshold = option_distance_threshold
         self.log_dir = log_dir
         self.seed = seed
 
@@ -74,7 +77,8 @@ class SkillChaining(object):
                              buffer_length=self.buffer_length,
                              num_subgoal_hits_required=self.num_goal_hits_before_training,
                              subgoal_reward=self.subgoal_reward, seed=self.seed, max_steps=20000,
-                             classifier_type="ocsvm", enable_timeout=self.enable_option_timeout, generate_plots=generate_plots)
+                             classifier_type="ocsvm", enable_timeout=self.enable_option_timeout,
+                             distance_threshold=self.option_distance_threshold, generate_plots=generate_plots)
 
         # Pointer to the current option:
         # 1. This option has the termination set which defines our current goal trigger
@@ -96,7 +100,8 @@ class SkillChaining(object):
         new_untrained_option = Option(self.mdp, name=name, global_solver=self.global_solver, buffer_length=self.buffer_length,
                                       num_subgoal_hits_required=self.num_goal_hits_before_training, subgoal_reward=self.subgoal_reward,
                                       seed=self.seed, parent=self.untrained_option, enable_timeout=True,
-                                      generate_plots=self.untrained_option.generate_plots)
+                                      generate_plots=self.untrained_option.generate_plots,
+                                      distance_threshold=self.option_distance_threshold)
 
         self.untrained_option.children.append(new_untrained_option)
         self.untrained_option = new_untrained_option
@@ -332,7 +337,7 @@ class SkillChaining(object):
 
                 if self.untrained_option.get_training_phase() == "initiation_done" and self.should_create_more_options():
                     self.create_child_option()
-                        
+
                 if state.is_out_of_frame() or state.is_terminal():
                     break
 
@@ -402,21 +407,21 @@ class SkillChaining(object):
 
     def perform_experiments(self):
         for option in self.trained_options:
-            visualize_dqn_replay_buffer(option.solver)
+            visualize_dqn_replay_buffer(option.solver, args.experiment_name + "_" + str(self.seed))
             # plot_one_class_initiation_classifier(option)
             # visualize_option_policy(option)
             # visualize_option_starting_and_ending_points(option)
             # plot_replay_buffer_size(option)
             # visualize_replay_buffer(option)
             # visualize_global_dqn_execution_points(self.global_execution_states)
-        visualize_dqn_replay_buffer(self.global_solver)
-        visualize_smdp_updates(self.global_solver, self.mdp)
+        visualize_dqn_replay_buffer(self.global_solver, args.experiment_name + "_" + str(self.seed))
+        visualize_smdp_updates(self.global_solver, self.mdp, args.experiment_name + "_" + str(self.seed))
 
         for i, o in enumerate(self.trained_options):
             plt.subplot(1, len(self.trained_options), i + 1)
             plt.plot(self.option_qvalues[o.name])
             plt.title(o.name)
-        plt.savefig("sampled_q_so.png")
+        plt.savefig("{}_sampled_q_so.png".format(args.experiment_name + "_" + str(self.seed)))
         plt.close()
 
     def trained_forward_pass(self, verbose=True, max_num_steps=2500, render=True):
@@ -488,6 +493,7 @@ if __name__ == '__main__':
     parser.add_argument("--n_options", type=int, help="Max # options to learn", default=2)
     parser.add_argument("--explore", type=str, help="Exploration Strategy (none/eps_decay)", default="none")
     parser.add_argument("--render", type=bool, help="Render the mdp env", default=False)
+    parser.add_argument("--distance_threshold", type=float, help="Max distance between +ive example and init set clf", default=0.5)
     args = parser.parse_args()
 
     overall_mdp = AcrobotMDP(args.seed, args.render)

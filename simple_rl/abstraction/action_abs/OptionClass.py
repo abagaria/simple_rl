@@ -42,7 +42,7 @@ class Option(object):
 
 	def __init__(self, overall_mdp, name, global_solver, buffer_length=20, pretrained=False,
 				 num_subgoal_hits_required=3, subgoal_reward=1., max_steps=20000, seed=0, parent=None, children=[],
-				 classifier_type="ocsvm", enable_timeout=True, timeout=200, initiation_period=7, generate_plots=False):
+				 classifier_type="ocsvm", enable_timeout=True, timeout=200, initiation_period=7, generate_plots=False, distance_threshold=0.5):
 		'''
 		Args:
 			overall_mdp (MDP)
@@ -61,6 +61,7 @@ class Option(object):
 			timeout (int)
 			initiation_period (int)
 			generate_plots (bool)
+                        distance_threshold (float)
 		'''
 		self.term_flag = False
 		self.name = name
@@ -78,7 +79,7 @@ class Option(object):
 		self.generate_plots = generate_plots
 
 		self.initiation_period = initiation_period
-		self.example_distance_threshold = 0.2
+		self.example_distance_threshold = distance_threshold
 
 		self.option_idx = 0 if self.parent is None else self.parent.option_idx + 1
 
