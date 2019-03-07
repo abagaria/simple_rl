@@ -60,3 +60,6 @@ class AcrobotState(State):
 
     def __ne__(self, other):
         return not self == other
+
+    def is_out_of_frame(self):
+        return False

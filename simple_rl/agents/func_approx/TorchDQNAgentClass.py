@@ -122,11 +122,11 @@ class QNetwork(nn.Module):
         for local_param, global_param in zip(self.fc2.parameters(), bigger_net.fc2.parameters()):
             local_param.data.copy_(global_param)
 
-        num_original_actions = 5 # TODO: Assuming that we are in pinball domain
+        num_original_actions = 3 # TODO: Assuming that we are in pinball domain
         self.fc3.weight.data.copy_(bigger_net.fc3.weight[:num_original_actions, :])
         self.fc3.bias.data.copy_(bigger_net.fc3.bias[:num_original_actions])
 
-        assert self.fc3.out_features == 5, "Expected Pinball with 5 actions, not {} ".format(self.fc3.out_features)
+        assert self.fc3.out_features == 3, "Expected Acrobot with 3 actions, not {} ".format(self.fc3.out_features)
 
     def initialize_with_smaller_network(self, smaller_net, init_q_value):
         """
@@ -227,7 +227,7 @@ class DQNAgent(Agent):
         Interface to the DQN agent: state can be output of env.step() and returned action can be input into next step().
         Args:
             state (np.array): numpy array state from Gym env
-            train_mode (bool): if training, use the internal epsilon. If evaluating, set epsilon to 0.
+            train_mode (bool): if training, use the internal epsilon. If evaluating, set epsilon to min epsilon
 
         Returns:
             action (int): integer representing the action to take in the Gym env
@@ -241,9 +241,24 @@ class DQNAgent(Agent):
             action_values = self.policy_network(state)
         self.policy_network.train()
 
-        # Argmax only over actions that can be implemented from the current state
-        impossible_option_idx = [idx for idx, option in enumerate(self.trained_options) if (not option.is_init_true(state.cpu().data.numpy()[0]))
-                                 or option.is_term_true(state.cpu().data.numpy()[0])]
+        # Arg-max only over actions that can be executed from the current state
+        # -- In general an option can be executed from s if s is in its initiation set and NOT in its termination set
+        # -- However, in the case of the goal option we just need to ensure that we are in its initiation set since
+        # -- its termination set is terminal anyway and we are thus not in the risk of executing og from its
+        # -- termination set.
+        impossible_option_idx = []
+        for idx, option in enumerate(self.trained_options):
+            np_state = state.cpu().data.numpy()[0]
+
+            if idx == 0:  # overall_goal_policy og
+                assert option.name == "overall_goal_policy", "should be og, got {}".format(option.name)
+                impossible = not option.is_init_true(np_state)
+            else:  # Every other option
+                impossible = (not option.is_init_true(np_state)) or option.is_term_true(np_state)
+
+            if impossible:
+                impossible_option_idx.append(idx)
+
         impossible_action_idx = map(lambda x: x + self.num_original_actions, impossible_option_idx)
         for impossible_idx in impossible_action_idx:
             action_values[0][impossible_idx] = torch.min(action_values, dim=1)[0] - 1.
@@ -257,7 +272,8 @@ class DQNAgent(Agent):
         original_actions = list(range(self.num_original_actions))
         all_option_idx = list(range(len(self.trained_options)))
         possible_option_idx = list(set(all_option_idx).difference(impossible_option_idx))
-        all_possible_action_idx = original_actions + list(map(lambda x: x + self.num_original_actions, possible_option_idx))
+        all_possible_action_idx = original_actions + list(
+            map(lambda x: x + self.num_original_actions, possible_option_idx))
         randomly_chosen_action = random.choice(all_possible_action_idx)
 
         # Not allowing epsilon-greedy to select an option as a random action
@@ -344,13 +360,11 @@ class DQNAgent(Agent):
             states = states.cpu().data.numpy()
             action_values = action_values.cpu().data.numpy()
 
-            positional_states = states[:, :2]
-
             # TODO: Change this to batched_is_init_true
             for idx, option in enumerate(self.trained_options): # type: Option
                 # inits = option.initiation_classifier.predict(positional_states)
-                inits = option.batched_is_init_true(positional_states)
-                terms = np.zeros(inits.shape) if option.parent is None else option.parent.batched_is_init_true(positional_states)
+                inits = option.batched_is_init_true(states)
+                terms = np.zeros(inits.shape) if option.parent is None else option.parent.batched_is_init_true(states)
                 action_values[(inits != 1) | (terms == 1), idx + self.num_original_actions] = np.min(action_values) - 1.
 
             # Move the q-values back the GPU

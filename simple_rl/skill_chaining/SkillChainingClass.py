@@ -28,7 +28,7 @@ from simple_rl.tasks.acrobot.AcrobotMDPClass import AcrobotMDP
 
 class SkillChaining(object):
     def __init__(self, mdp, rl_agent, pretrained_options=[], buffer_length=25,
-                 subgoal_reward=5000.0, subgoal_hits=3, max_num_options=3, lr_decay=False,
+                 subgoal_reward=5000.0, subgoal_hits=3, max_num_options=5, lr_decay=False,
                  enable_option_timeout=True, intra_option_learning=True, generate_plots=True, log_dir="", seed=0):
         """
         Args:
@@ -324,11 +324,11 @@ class SkillChaining(object):
 
                     if self.untrained_option.train(experience_buffer, state_buffer):
                         if self.generate_plots and not self.global_solver.tensor_log:
-                            render_value_function(self.global_solver, torch.device("cuda"), episode=episode-1000)
-                            plot_one_class_initiation_classifier(self.untrained_option)
+                            render_sampled_value_function(self.global_solver, torch.device("cpu"), episode=episode)
+                            render_sampled_initiation_classifier(self.untrained_option, self.global_solver)
                         self._augment_agent_with_new_option(self.untrained_option)
                         if self.generate_plots and not self.global_solver.tensor_log:
-                            render_value_function(self.global_solver, torch.device("cuda"), episode=episode+1000)
+                            render_sampled_value_function(self.global_solver, torch.device("cpu"), episode=episode)
 
                 if self.untrained_option.get_training_phase() == "initiation_done" and self.should_create_more_options():
                     self.create_child_option()
@@ -351,12 +351,13 @@ class SkillChaining(object):
         if episode % 10 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}\tDuration: {:.2f} steps\tEpsilon: {:.2f}'.format(episode, np.mean(last_10_scores), np.mean(last_10_durations), self.global_solver.epsilon))
         if episode > 0 and episode % 5 == 0:
-            eval_score = self.trained_forward_pass(verbose=False, render=True)
+            # eval_score = self.trained_forward_pass(verbose=False, render=True)
+            eval_score = 0.0
             self.validation_scores.append(eval_score)
             print("\rEpisode {}\tValidation Score: {:.2f}".format(episode, eval_score))
 
-        if self.generate_plots and not self.global_solver.tensor_log and episode % 10 == 0:
-            render_value_function(self.global_solver, torch.device("cuda"), episode=episode)
+        if self.generate_plots and not self.global_solver.tensor_log and episode % 100 == 0:
+            render_sampled_value_function(self.global_solver, torch.device("cpu"), episode=episode)
         for trained_option in self.trained_options:  # type: Option
             self.num_option_executions[trained_option.name].append(episode_option_executions[trained_option.name])
             if self.global_solver.tensor_log:
@@ -478,13 +479,13 @@ if __name__ == '__main__':
     parser.add_argument("--experiment_name", type=str, help="Experiment Name")
     parser.add_argument("--pretrained", type=bool, help="whether or not to load pretrained options", default=False)
     parser.add_argument("--seed", type=int, help="Random seed for this run (default=0)", default=0)
-    parser.add_argument("--episodes", type=int, help="# episodes", default=250)
-    parser.add_argument("--steps", type=int, help="# steps", default=10000)
+    parser.add_argument("--episodes", type=int, help="# episodes", default=501)
+    parser.add_argument("--steps", type=int, help="# steps", default=500)
     parser.add_argument("--intra_option_learning", type=bool, help="Whether or not to use i-o-l", default=False)
     parser.add_argument("--buffer_len", type=int, help="SkillChaining Buffer Length", default=20)
     parser.add_argument("--subgoal_reward", type=float, help="SkillChaining subgoal reward", default=1.0)
     parser.add_argument("--lr", type=float, help="learning rate", default=1e-4)
-    parser.add_argument("--n_options", type=int, help="Max # options to learn", default=3)
+    parser.add_argument("--n_options", type=int, help="Max # options to learn", default=2)
     parser.add_argument("--explore", type=str, help="Exploration Strategy (none/eps_decay)", default="none")
     parser.add_argument("--render", type=bool, help="Render the mdp env", default=False)
     args = parser.parse_args()
@@ -517,7 +518,7 @@ if __name__ == '__main__':
     else:
         print("Training skill chaining agent from scratch with a buffer length of {} and subgoal reward {}".format(buffer_len, sub_reward))
         print("MDP InitState = ", overall_mdp.init_state)
-        print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
+        # print("MDP GoalPosition = ", overall_mdp.domain.environment.target_pos)
         chainer = SkillChaining(overall_mdp, rl_agent=solver, buffer_length=buffer_len,
                                 seed=random_seed, subgoal_reward=sub_reward, max_num_options=max_number_of_options,
                                 lr_decay=False, log_dir=logdir, intra_option_learning=args.intra_option_learning)

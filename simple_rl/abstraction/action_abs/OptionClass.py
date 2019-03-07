@@ -78,6 +78,7 @@ class Option(object):
 		self.generate_plots = generate_plots
 
 		self.initiation_period = initiation_period
+		self.example_distance_threshold = 0.2
 
 		self.option_idx = 0 if self.parent is None else self.parent.option_idx + 1
 
@@ -127,7 +128,7 @@ class Option(object):
 		return not self == other
 
 	def distance_to_closest_positive_example(self, state):
-		XA = state.features()
+		XA = state.features() if isinstance(state, State) else state
 		XB = self._construct_feature_matrix(self.positive_examples)
 		distances = distance.cdist(XA[None, ...], XB, "euclidean")
 		return np.min(distances)
@@ -139,7 +140,7 @@ class Option(object):
 			positive_example_matrix = self._construct_feature_matrix(self.positive_examples)
 			distance_matrix = distance.cdist(state_matrix, positive_example_matrix, "euclidean")
 			closest_distances = np.min(distance_matrix, axis=1)
-			distance_predictions = closest_distances < 0.1
+			distance_predictions = closest_distances < self.example_distance_threshold
 
 			predictions = np.logical_and(svm_predictions, distance_predictions)
 			return predictions
@@ -148,13 +149,14 @@ class Option(object):
 		raise NotImplementedError("Classifier type {} not supported".format(self.classifier_type))
 
 	def is_init_true(self, ground_state):
-		svm_decision = self.initiation_classifier.predict([ground_state.features()])[0] == 1
+		features = ground_state.features() if isinstance(ground_state, State) else ground_state
+		svm_decision = self.initiation_classifier.predict([features])[0] == 1
 
 		if self.classifier_type == "ocsvm":
 			return svm_decision
 		if self.classifier_type == "tcsvm":
 			dist = self.distance_to_closest_positive_example(ground_state)
-			return svm_decision and dist < 0.1
+			return svm_decision and dist < self.example_distance_threshold
 		raise NotImplementedError("Classifier type {} not supported".format(self.classifier_type))
 
 	# TODO: Does it make more sense to return true for entering *any* parent's initiation set
@@ -411,8 +413,8 @@ class Option(object):
 		if len(self.negative_examples) > 0:
 			self.train_two_class_classifier()
 			if self.generate_plots:
-				from simple_rl.skill_chaining.skill_chaining_utils import plot_binary_initiation_set
-				plot_binary_initiation_set(self)
+				from simple_rl.skill_chaining.skill_chaining_utils import render_sampled_initiation_classifier
+				render_sampled_initiation_classifier(self, self.global_solver)
 
 	def trained_option_execution(self, mdp, outer_step_counter, episodic_budget):
 		state = mdp.cur_state
@@ -426,19 +428,3 @@ class Option(object):
 			step_number += 1
 			num_steps += 1
 		return score, state, step_number
-
-	def visualize_learned_policy(self, mdp, num_times=5):
-		for _ in range(num_times):
-			positional_state = self.sample_points_inside(self.initiation_classifier, num_points_to_sample=1)
-			state = PinballState(positional_state[0][0], positional_state[0][1], 0, 0)
-			mdp.render = True
-			mdp.cur_state = state
-			mdp.domain.state = state.features()
-			mdp.execute_agent_action(4) # noop
-			mdp.execute_agent_action(4) # noop
-			time.sleep(0.3)
-			if self.is_init_true(state) and not self.is_term_true(state):
-				score, next_state, option_num_steps = self.trained_option_execution(mdp, 0, 2000)
-				print("Success" if self.is_term_true(next_state) else "Failure")
-			elif not self.is_init_true(state):
-				print("{} not in {}'s initiation set".format(state, self.name))
